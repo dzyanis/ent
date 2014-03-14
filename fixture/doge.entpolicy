@@ -1,0 +1,9 @@
+{
+  "name":"doge",
+  "owner": {
+    "email": {
+      "name": "doge team",
+      "address": "doge@bucket.io"
+    }
+  }
+}

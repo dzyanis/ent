@@ -1,0 +1,9 @@
+{
+  "name": "bit",
+  "owner": {
+    "email": {
+      "name": "bit team",
+      "address": "bit@bucket.io"
+    }
+  }
+}
