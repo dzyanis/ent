@@ -20,6 +20,12 @@ const (
 	fileRoute = `/{bucket}/{key:[a-zA-Z0-9\-_\.~\+\/]+}`
 )
 
+var (
+	Program = "ent"
+	Commit  = "0000000"
+	Version = "0.0.0"
+)
+
 func main() {
 	var (
 		fsRoot      = flag.String("fs.root", "/tmp", "FileSystem root directory")
