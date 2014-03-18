@@ -1,5 +1,5 @@
 COMMIT     := $(shell git rev-parse --short HEAD)
-VERSION    := 0.0.0
+VERSION    := 0.0.1
 
 LDFLAGS    := -ldflags \
               "-X main.Commit $(COMMIT)\
