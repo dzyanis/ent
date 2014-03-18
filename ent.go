@@ -39,7 +39,7 @@ var (
 func main() {
 	var (
 		fsRoot      = flag.String("fs.root", "/tmp", "FileSystem root directory")
-		httpAddress = flag.String("http.address", ":5555", "HTTP listen address")
+		httpAddress = flag.String("http.addr", ":5555", "HTTP listen address")
 		providerDir = flag.String("provider.dir", "/tmp", "Provider directory with bucket policies")
 	)
 	flag.Parse()
