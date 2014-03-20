@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"flag"
 	"io"
-	"log"
+	logpkg "log"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +36,8 @@ var (
 	requestDurations = prometheus.NewDefaultHistogram()
 	requestTotal     = prometheus.NewCounter()
 	responseBytes    = prometheus.NewCounter()
+
+	log = logpkg.New(os.Stdout, "", logpkg.LstdFlags|logpkg.Lmicroseconds)
 )
 
 func main() {
@@ -62,6 +66,7 @@ func main() {
 	r.Handle("/metrics", prometheus.DefaultRegistry.Handler())
 	r.Get("/", handleBucketList(p))
 
+	log.Printf("listening on %s", *httpAddress)
 	log.Fatal(http.ListenAndServe(*httpAddress, http.Handler(r)))
 }
 
@@ -71,29 +76,32 @@ func handleCreate(p Provider, fs FileSystem) http.HandlerFunc {
 			began  = time.Now()
 			bucket = r.URL.Query().Get(":bucket")
 			key    = r.URL.Query().Get(":key")
+			rwd    = exp.NewResponseWriterDelegator(w)
+
+			b   *Bucket
+			err error
+			rd  *ReaderDelegator
 		)
 		defer r.Body.Close()
+		defer report(rwd, r, rd, b, began, "handleCreate")
 
-		b, err := p.Get(bucket)
+		b, err = p.Get(bucket)
 		if err != nil {
-			respondError(w, r.Method, r.URL.String(), err)
+			respondError(w, r, err)
 			return
 		}
 
-		rd := NewReaderDelegator(r.Body)
+		rd = NewReaderDelegator(r.Body)
 		f, err := fs.Create(b, key, rd)
 		if err != nil {
-			respondError(w, r.Method, r.URL.String(), err)
+			respondError(w, r, err)
 			return
 		}
 		h, err := f.Hash()
 		if err != nil {
-			respondError(w, r.Method, r.URL.String(), err)
+			respondError(w, r, err)
 			return
 		}
-
-		rwd := exp.NewResponseWriterDelegator(w)
-		defer reportMetrics(rwd, r, rd, b, began, "handleCreate")
 
 		respondCreated(rwd, b, key, h, began)
 	}
@@ -105,22 +113,24 @@ func handleGet(p Provider, fs FileSystem) http.HandlerFunc {
 			began  = time.Now()
 			bucket = r.URL.Query().Get(":bucket")
 			key    = r.URL.Query().Get(":key")
-		)
+			rwd    = exp.NewResponseWriterDelegator(w)
 
-		b, err := p.Get(bucket)
+			b   *Bucket
+			err error
+		)
+		defer report(rwd, r, nil, b, began, "handleGet")
+
+		b, err = p.Get(bucket)
 		if err != nil {
-			respondError(w, r.Method, r.URL.String(), err)
+			respondError(w, r, err)
 			return
 		}
 
 		f, err := fs.Open(b, key)
 		if err != nil {
-			respondError(w, r.Method, r.URL.String(), err)
+			respondError(w, r, err)
 			return
 		}
-
-		rwd := exp.NewResponseWriterDelegator(w)
-		defer reportMetrics(rwd, r, nil, b, began, "handleGet")
 
 		http.ServeContent(rwd, r, key, time.Now(), f)
 	}
@@ -128,16 +138,17 @@ func handleGet(p Provider, fs FileSystem) http.HandlerFunc {
 
 func handleBucketList(p Provider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		began := time.Now()
+		var (
+			began = time.Now()
+			rwd   = exp.NewResponseWriterDelegator(w)
+		)
+		defer report(rwd, r, nil, nil, began, "handleBucketList")
 
 		bs, err := p.List()
 		if err != nil {
-			respondError(w, r.Method, r.URL.String(), err)
+			respondError(w, r, err)
 			return
 		}
-
-		rwd := exp.NewResponseWriterDelegator(w)
-		defer reportMetrics(rwd, r, nil, nil, began, "handleBucketList")
 
 		respondBucketList(rwd, bs, began)
 	}
@@ -197,7 +208,7 @@ type ResponseError struct {
 	Description string `json:"description"`
 }
 
-func respondError(w http.ResponseWriter, method, url string, err error) {
+func respondError(w http.ResponseWriter, r *http.Request, err error) {
 	code := http.StatusInternalServerError
 
 	switch err {
@@ -212,6 +223,14 @@ func respondError(w http.ResponseWriter, method, url string, err error) {
 		Error:       err.Error(),
 		Description: http.StatusText(code),
 	})
+
+	log.Printf("%s\n", strings.Join([]string{
+		r.RemoteAddr,
+		r.Method,
+		r.URL.String(),
+		strconv.Itoa(code),
+		err.Error(),
+	}, " "))
 }
 
 // ResponseFile is used as the intermediate type to return metadata of a File.
@@ -258,7 +277,7 @@ type responseFileWrapper struct {
 	SHA1   string  `json:"sha1"`
 }
 
-func reportMetrics(
+func report(
 	rwd *exp.ResponseWriterDelegator,
 	r *http.Request,
 	rd *ReaderDelegator,
@@ -266,7 +285,7 @@ func reportMetrics(
 	began time.Time,
 	op string,
 ) {
-	d := float64(time.Since(began))
+	d := time.Since(began)
 	labels := map[string]string{
 		"method":    strings.ToLower(r.Method),
 		"operation": op,
@@ -282,9 +301,18 @@ func reportMetrics(
 	}
 
 	requestTotal.Increment(labels)
-	requestDuration.IncrementBy(labels, d)
-	requestDurations.Add(labels, d)
+	requestDuration.IncrementBy(labels, float64(d))
+	requestDurations.Add(labels, float64(d))
 	responseBytes.IncrementBy(labels, float64(rwd.BytesWritten))
+
+	log.Printf("%s\n", strings.Join([]string{
+		r.RemoteAddr,
+		r.Method,
+		r.URL.String(),
+		rwd.Status(),
+		strconv.Itoa(rwd.BytesWritten),
+		strconv.FormatInt(d.Nanoseconds(), 10),
+	}, " "))
 }
 
 type ReaderDelegator struct {
