@@ -1,6 +1,6 @@
 # ent
 
-Ent provides a small HTTP interface to manage blobs namespace partitioned by buckets. Depending on the FileSystem implementation used it needs to run as a single instance per host or as many instnaces scaled out horizontally.
+Ent provides a small HTTP interface to manage blobs namespace partitioned by buckets. Depending on the FileSystem implementation used it needs to run as a single instance per host or as many instances scaled out horizontally.
 
 Within a bucket, you can use any names for your objects, but bucket names must be unique. Only one Owner can exist per Bucket.
 
@@ -12,7 +12,7 @@ Within a bucket, you can use any names for your objects, but bucket names must b
 $ curl -s -X POST --data-binary @mybig.blob \
     'http://localhost:5555/ent/my/big.blob
 {
-  "duration": "12000000",
+  "duration": 12000000,
   "file": {
     "bucket": {
       "name": "ent",
@@ -35,7 +35,7 @@ e9f6f0657f6d33aa15cfd885bc34713a266a729a  big.blob
 **GET** / - Returns the list of existing buckets.
 
 ```
-$ curl -s 'http://localhost:555/
+$ curl -s 'http://localhost:5555/
 {
   "count": 3,
   "duration": 2404,
