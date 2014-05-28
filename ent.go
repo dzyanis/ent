@@ -308,7 +308,7 @@ func report(
 	log.Printf("%s\n", strings.Join([]string{
 		r.RemoteAddr,
 		r.Method,
-		r.URL.String(),
+		r.URL.Path,
 		rwd.Status(),
 		strconv.Itoa(rwd.BytesWritten),
 		strconv.FormatInt(d.Nanoseconds(), 10),
