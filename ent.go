@@ -19,7 +19,7 @@ import (
 
 	"github.com/gorilla/pat"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/exp"
+	"github.com/streadway/handy/report"
 )
 
 const (
@@ -45,6 +45,9 @@ func main() {
 		fsRoot      = flag.String("fs.root", "/tmp", "FileSystem root directory")
 		httpAddress = flag.String("http.addr", ":5555", "HTTP listen address")
 		providerDir = flag.String("provider.dir", "/tmp", "Provider directory with bucket policies")
+
+		fs = NewDiskFS(*fsRoot)
+		r  = pat.New()
 	)
 	flag.Parse()
 
@@ -59,12 +62,40 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fs := NewDiskFS(*fsRoot)
-	r := pat.New()
-	r.Get(fileRoute, handleGet(p, fs))
-	r.Post(fileRoute, handleCreate(p, fs))
 	r.Handle("/metrics", prometheus.DefaultRegistry.Handler())
-	r.Get("/", handleBucketList(p))
+	r.Add(
+		"GET",
+		fileRoute,
+		report.JSON(
+			os.Stdout,
+			metrics(
+				"handleGet",
+				handleGet(p, fs),
+			),
+		),
+	)
+	r.Add(
+		"POST",
+		fileRoute,
+		report.JSON(
+			os.Stdout,
+			metrics(
+				"handleCreate",
+				handleCreate(p, fs),
+			),
+		),
+	)
+	r.Add(
+		"GET",
+		"/",
+		report.JSON(
+			os.Stdout,
+			metrics(
+				"handleBucketList",
+				handleBucketList(p),
+			),
+		),
+	)
 
 	log.Printf("listening on %s", *httpAddress)
 	log.Fatal(http.ListenAndServe(*httpAddress, http.Handler(r)))
@@ -73,26 +104,19 @@ func main() {
 func handleCreate(p Provider, fs FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			began  = time.Now()
+			start  = time.Now()
 			bucket = r.URL.Query().Get(":bucket")
 			key    = r.URL.Query().Get(":key")
-			rwd    = exp.NewResponseWriterDelegator(w)
-
-			b   *Bucket
-			err error
-			rd  *ReaderDelegator
 		)
 		defer r.Body.Close()
-		defer report(rwd, r, rd, b, began, "handleCreate")
 
-		b, err = p.Get(bucket)
+		b, err := p.Get(bucket)
 		if err != nil {
 			respondError(w, r, err)
 			return
 		}
 
-		rd = NewReaderDelegator(r.Body)
-		f, err := fs.Create(b, key, rd)
+		f, err := fs.Create(b, key, r.Body)
 		if err != nil {
 			respondError(w, r, err)
 			return
@@ -103,24 +127,25 @@ func handleCreate(p Provider, fs FileSystem) http.HandlerFunc {
 			return
 		}
 
-		respondCreated(rwd, b, key, h, began)
+		respondJSON(w, http.StatusCreated, ResponseCreated{
+			Duration: time.Since(start),
+			File: ResponseFile{
+				Bucket: b,
+				Key:    key,
+				SHA1:   h,
+			},
+		})
 	}
 }
 
 func handleGet(p Provider, fs FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			began  = time.Now()
 			bucket = r.URL.Query().Get(":bucket")
 			key    = r.URL.Query().Get(":key")
-			rwd    = exp.NewResponseWriterDelegator(w)
-
-			b   *Bucket
-			err error
 		)
-		defer report(rwd, r, nil, b, began, "handleGet")
 
-		b, err = p.Get(bucket)
+		b, err := p.Get(bucket)
 		if err != nil {
 			respondError(w, r, err)
 			return
@@ -132,7 +157,7 @@ func handleGet(p Provider, fs FileSystem) http.HandlerFunc {
 			return
 		}
 
-		http.ServeContent(rwd, r, key, time.Now(), f)
+		http.ServeContent(w, r, key, time.Now(), f)
 	}
 }
 
@@ -140,9 +165,7 @@ func handleBucketList(p Provider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
 			began = time.Now()
-			rwd   = exp.NewResponseWriterDelegator(w)
 		)
-		defer report(rwd, r, nil, nil, began, "handleBucketList")
 
 		bs, err := p.List()
 		if err != nil {
@@ -150,7 +173,11 @@ func handleBucketList(p Provider) http.HandlerFunc {
 			return
 		}
 
-		respondBucketList(rwd, bs, began)
+		respondJSON(w, http.StatusOK, ResponseBucketList{
+			Count:    len(bs),
+			Duration: time.Since(began),
+			Buckets:  bs,
+		})
 	}
 }
 
@@ -161,42 +188,12 @@ type ResponseCreated struct {
 	File     ResponseFile  `json:"file"`
 }
 
-func respondCreated(
-	w http.ResponseWriter,
-	b *Bucket,
-	k string,
-	h []byte,
-	d time.Time,
-) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-
-	json.NewEncoder(w).Encode(ResponseCreated{
-		Duration: time.Since(d),
-		File: ResponseFile{
-			Bucket: b,
-			Key:    k,
-			SHA1:   h,
-		},
-	})
-}
-
 // ResponseBucketList is used as the intermediate type to craft a response for
 // the retrieval of all buckets.
 type ResponseBucketList struct {
 	Count    int           `json:"count"`
 	Duration time.Duration `json:"duration"`
 	Buckets  []*Bucket     `json:"buckets"`
-}
-
-func respondBucketList(w http.ResponseWriter, bs []*Bucket, began time.Time) {
-	w.Header().Set("Content-Type", "application/json")
-
-	json.NewEncoder(w).Encode(ResponseBucketList{
-		Count:    len(bs),
-		Duration: time.Since(began),
-		Buckets:  bs,
-	})
 }
 
 // ResponseError is used as the intermediate type to craft a response for any
@@ -216,21 +213,17 @@ func respondError(w http.ResponseWriter, r *http.Request, err error) {
 		code = http.StatusNotFound
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(ResponseError{
+	respondJSON(w, code, ResponseError{
 		Code:        code,
 		Error:       err.Error(),
 		Description: http.StatusText(code),
 	})
+}
 
-	log.Printf("%s\n", strings.Join([]string{
-		r.RemoteAddr,
-		r.Method,
-		r.URL.String(),
-		strconv.Itoa(code),
-		err.Error(),
-	}, " "))
+func respondJSON(w http.ResponseWriter, code int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(payload)
 }
 
 // ResponseFile is used as the intermediate type to return metadata of a File.
@@ -277,57 +270,58 @@ type responseFileWrapper struct {
 	SHA1   string  `json:"sha1"`
 }
 
-func report(
-	rwd *exp.ResponseWriterDelegator,
-	r *http.Request,
-	rd *ReaderDelegator,
-	b *Bucket,
-	began time.Time,
-	op string,
-) {
-	d := time.Since(began)
-	labels := map[string]string{
-		"method":    strings.ToLower(r.Method),
-		"operation": op,
-		"status":    rwd.Status(),
-	}
+func metrics(op string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var (
+			start = time.Now()
+			rd    = &readerDelegator{ReadCloser: r.Body}
+			rc    = &responseRecorder{ResponseWriter: w}
+		)
 
-	if b != nil {
-		labels["bucket"] = b.Name
-	}
+		r.Body = rd
 
-	if rd != nil {
+		next.ServeHTTP(rc, r)
+
+		d := time.Since(start)
+		labels := map[string]string{
+			"bucket":    r.URL.Query().Get(":bucket"),
+			"method":    strings.ToLower(r.Method),
+			"operation": op,
+			"status":    strconv.Itoa(rc.status),
+		}
+
 		requestBytes.IncrementBy(labels, float64(rd.BytesRead))
-	}
-
-	requestTotal.Increment(labels)
-	requestDuration.IncrementBy(labels, float64(d))
-	requestDurations.Add(labels, float64(d))
-	responseBytes.IncrementBy(labels, float64(rwd.BytesWritten))
-
-	log.Printf("%s\n", strings.Join([]string{
-		r.RemoteAddr,
-		r.Method,
-		r.URL.Path,
-		rwd.Status(),
-		strconv.Itoa(rwd.BytesWritten),
-		strconv.FormatInt(d.Nanoseconds(), 10),
-	}, " "))
+		requestTotal.Increment(labels)
+		requestDuration.IncrementBy(labels, float64(d))
+		requestDurations.Add(labels, float64(d))
+		responseBytes.IncrementBy(labels, float64(rc.size))
+	})
 }
 
-type ReaderDelegator struct {
-	io.Reader
+type readerDelegator struct {
+	io.ReadCloser
 	BytesRead int
 }
 
-func (r *ReaderDelegator) Read(p []byte) (int, error) {
-	n, err := r.Reader.Read(p)
+func (r *readerDelegator) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
 	r.BytesRead += n
 	return n, err
 }
 
-func NewReaderDelegator(r io.Reader) *ReaderDelegator {
-	return &ReaderDelegator{
-		Reader: r,
-	}
+type responseRecorder struct {
+	http.ResponseWriter
+	status int
+	size   int
+}
+
+func (r *responseRecorder) Write(b []byte) (int, error) {
+	n, err := r.ResponseWriter.Write(b)
+	r.size += n
+	return n, err
+}
+
+func (r *responseRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
 }
