@@ -45,9 +45,6 @@ func main() {
 		fsRoot      = flag.String("fs.root", "/tmp", "FileSystem root directory")
 		httpAddress = flag.String("http.addr", ":5555", "HTTP listen address")
 		providerDir = flag.String("provider.dir", "/tmp", "Provider directory with bucket policies")
-
-		fs = NewDiskFS(*fsRoot)
-		r  = pat.New()
 	)
 	flag.Parse()
 
@@ -56,6 +53,11 @@ func main() {
 	prometheus.Register("ent_requests_duration_nanoseconds", "Amounts of time ent has spent answering requests in nanoseconds", prometheus.NilLabels, requestDurations)
 	prometheus.Register("ent_request_bytes_total", "Total volume of request payloads emitted in bytes", prometheus.NilLabels, requestBytes)
 	prometheus.Register("ent_response_bytes_total", "Total volume of response payloads emitted in bytes", prometheus.NilLabels, responseBytes)
+
+	var (
+		fs = NewDiskFS(*fsRoot)
+		r  = pat.New()
+	)
 
 	p, err := NewDiskProvider(*providerDir)
 	if err != nil {
