@@ -33,28 +33,6 @@ var (
 
 	labelNames = []string{"bucket", "method", "operation", "status"}
 
-	// TODO: Consider dropping requestTotal. requestDurations implicitly
-	// creates a metric 'ent_requests_duration_nanoseconds_count', which
-	// contains the same value as 'ent_requests_total'.
-	requestTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: Program,
-			Name:      "requests_total",
-			Help:      "Total number of requests made.",
-		},
-		labelNames,
-	)
-	// TODO: Consider dropping requestDuration. requestDurations implicitly
-	// creates a metric 'ent_requests_duration_nanoseconds_sum', which
-	// contains the same value as 'ent_requests_duration_nanoseconds_total'.
-	requestDuration = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: Program,
-			Name:      "requests_duration_nanoseconds_total",
-			Help:      "Total amount of time ent has spent to answer requests in nanoseconds.",
-		},
-		labelNames,
-	)
 	requestDurations = prometheus.NewSummaryVec(
 		prometheus.SummaryOpts{
 			Namespace: Program,
@@ -63,6 +41,11 @@ var (
 		},
 		labelNames,
 	)
+	// Note that the summary 'requestDurations' above will result in metrics
+	// 'ent_requests_duration_nanoseconds_count' and
+	// 'ent_requests_duration_nanoseconds_sum', counting the total number of
+	// requests made and summing up the total amount of time ent has spent
+	// to answer requests, respectively.
 	requestBytes = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: Program,
@@ -91,8 +74,6 @@ func main() {
 	)
 	flag.Parse()
 
-	prometheus.MustRegister(requestTotal)
-	prometheus.MustRegister(requestDuration)
 	prometheus.MustRegister(requestDurations)
 	prometheus.MustRegister(requestBytes)
 	prometheus.MustRegister(responseBytes)
@@ -336,8 +317,6 @@ func metrics(op string, next http.Handler) http.Handler {
 		}
 
 		requestBytes.With(labels).Add(float64(rd.BytesRead))
-		requestTotal.With(labels).Inc()
-		requestDuration.With(labels).Add(float64(d))
 		requestDurations.With(labels).Observe(float64(d))
 		responseBytes.With(labels).Add(float64(rc.size))
 	})
