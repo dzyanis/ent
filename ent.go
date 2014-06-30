@@ -31,11 +31,37 @@ var (
 	Commit  = "0000000"
 	Version = "0.0.0"
 
-	requestBytes     = prometheus.NewCounter()
-	requestDuration  = prometheus.NewCounter()
-	requestDurations = prometheus.NewDefaultHistogram()
-	requestTotal     = prometheus.NewCounter()
-	responseBytes    = prometheus.NewCounter()
+	labelNames = []string{"bucket", "method", "operation", "status"}
+
+	requestDurations = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Namespace: Program,
+			Name:      "requests_duration_nanoseconds",
+			Help:      "Amounts of time ent has spent answering requests in nanoseconds.",
+		},
+		labelNames,
+	)
+	// Note that the summary 'requestDurations' above will result in metrics
+	// 'ent_requests_duration_nanoseconds_count' and
+	// 'ent_requests_duration_nanoseconds_sum', counting the total number of
+	// requests made and summing up the total amount of time ent has spent
+	// to answer requests, respectively.
+	requestBytes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: Program,
+			Name:      "request_bytes_total",
+			Help:      "Total volume of request payloads emitted in bytes.",
+		},
+		labelNames,
+	)
+	responseBytes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: Program,
+			Name:      "response_bytes_total",
+			Help:      "Total volume of response payloads emitted in bytes.",
+		},
+		labelNames,
+	)
 
 	log = logpkg.New(os.Stdout, "", logpkg.LstdFlags|logpkg.Lmicroseconds)
 )
@@ -48,11 +74,9 @@ func main() {
 	)
 	flag.Parse()
 
-	prometheus.Register("ent_requests_total", "Total number of requests made", prometheus.NilLabels, requestTotal)
-	prometheus.Register("ent_requests_duration_nanoseconds_total", "Total amount of time ent has spent to answer requests in nanoseconds", prometheus.NilLabels, requestDuration)
-	prometheus.Register("ent_requests_duration_nanoseconds", "Amounts of time ent has spent answering requests in nanoseconds", prometheus.NilLabels, requestDurations)
-	prometheus.Register("ent_request_bytes_total", "Total volume of request payloads emitted in bytes", prometheus.NilLabels, requestBytes)
-	prometheus.Register("ent_response_bytes_total", "Total volume of response payloads emitted in bytes", prometheus.NilLabels, responseBytes)
+	prometheus.MustRegister(requestDurations)
+	prometheus.MustRegister(requestBytes)
+	prometheus.MustRegister(responseBytes)
 
 	var (
 		fs = NewDiskFS(*fsRoot)
@@ -64,7 +88,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	r.Handle("/metrics", prometheus.DefaultRegistry.Handler())
+	r.Handle("/metrics", prometheus.Handler())
 	r.Add(
 		"GET",
 		fileRoute,
@@ -292,11 +316,9 @@ func metrics(op string, next http.Handler) http.Handler {
 			"status":    strconv.Itoa(rc.status),
 		}
 
-		requestBytes.IncrementBy(labels, float64(rd.BytesRead))
-		requestTotal.Increment(labels)
-		requestDuration.IncrementBy(labels, float64(d))
-		requestDurations.Add(labels, float64(d))
-		responseBytes.IncrementBy(labels, float64(rc.size))
+		requestBytes.With(labels).Add(float64(rd.BytesRead))
+		requestDurations.With(labels).Observe(float64(d))
+		responseBytes.With(labels).Add(float64(rc.size))
 	})
 }
 
