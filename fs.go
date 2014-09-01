@@ -83,38 +83,12 @@ func (fs *diskFS) List(bucket *ent.Bucket, prefix string, limit uint64, sortStra
 	var (
 		files      = ent.Files{}
 		bucketDir  = filepath.Join(fs.root, bucket.Name)
-		prefixGlob = fmt.Sprintf("%s**", filepath.Join(bucketDir, prefix))
+		prefixGlob = filepath.Join(bucketDir, prefix)
 	)
 
-	// In case the prefix is empty the above created glob would not match.
-	if prefix == "" {
-		prefixGlob = filepath.Join(bucketDir, "**")
-	}
-
-	matches, err := filepath.Glob(prefixGlob)
+	err := filepath.Walk(bucketDir, listWalk(&files, prefixGlob, bucketDir))
 	if err != nil {
 		return nil, err
-	}
-
-	for _, m := range matches {
-		fd, err := os.Open(m)
-		if err != nil {
-			return nil, err
-		}
-
-		stat, err := fd.Stat()
-		if err != nil {
-			return nil, err
-		}
-
-		var (
-			// The key is without leading slash.
-			key = strings.TrimPrefix(m, bucketDir+"/")
-			f   = newFile(fd, key)
-		)
-		f.lastModified = stat.ModTime()
-
-		files = append(files, f)
 	}
 
 	sortStrategy.Sort(files)
@@ -187,4 +161,32 @@ func (f *file) Write(p []byte) (int, error) {
 	f.hashed += int64(n)
 
 	return f.File.Write(p)
+}
+
+func listWalk(files *ent.Files, prefix string, bucketDir string) filepath.WalkFunc {
+	return func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("error walking tree: %s", err)
+		}
+
+		if !info.IsDir() && strings.HasPrefix(path, prefix) {
+			fd, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+
+			stat, err := fd.Stat()
+			if err != nil {
+				return err
+			}
+
+			// The key is without leading slash.
+			f := newFile(fd, strings.TrimPrefix(path, bucketDir+"/"))
+			f.lastModified = stat.ModTime()
+
+			*files = append(*files, f)
+		}
+
+		return nil
+	}
 }

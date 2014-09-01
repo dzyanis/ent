@@ -26,10 +26,8 @@ func TestDiskFS(t *testing.T) {
 	}
 	defer os.RemoveAll(tmp)
 
-	var (
-		b  = ent.NewBucket("create", ent.Owner{})
-		fs = newDiskFS(tmp)
-	)
+	b := ent.NewBucket("create", ent.Owner{})
+	fs := newDiskFS(tmp)
 
 	testFile := "./fixture/test.zip"
 	h := sha1.New()
@@ -85,17 +83,21 @@ func TestDiskFSList(t *testing.T) {
 			"prefix4",
 			"one",
 		}
+
+		blobsCount = uint64(len(tempFiles)) + 1
+
 		listTestEntries = []struct {
 			prefix        string
 			limit         uint64
 			expectedCount int
 		}{
+			{"test", 1, 1},
 			{"temp", 1, 1},
 			{"temp", 13, 5},
 			{"unexistedPrefix", 1000, 0},
-			{"", uint64(len(tempFiles)), len(tempFiles)},
-			{"", uint64(len(tempFiles) + 1), len(tempFiles)},
-			{"", uint64(len(tempFiles) - 1), len(tempFiles) - 1},
+			{"", blobsCount, int(blobsCount)},
+			{"", blobsCount + 1, int(blobsCount)},
+			{"", blobsCount - 1, int(blobsCount - 1)},
 			{"one", 1, 1},
 			{"one", 20, 1},
 			{"o", 1, 1},
@@ -119,18 +121,32 @@ func TestDiskFSList(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Could not setup env %s", err)
 		}
-		t := time.Now().Add(time.Second * time.Duration(i*10))
-		os.Chtimes(tmp.Name(), t, t)
+		newTime := time.Now().Add(time.Second * time.Duration(i*10))
+		os.Chtimes(tmp.Name(), newTime, newTime)
 	}
 
-	var (
-		bucketName = bucketDir[len(tmp)+1:]
-		b          = ent.NewBucket(bucketName, ent.Owner{})
-		fs         = newDiskFS(tmp)
-	)
+	tmpDir, err := ioutil.TempDir(bucketDir, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tmpFile, err := ioutil.TempFile(tmpDir, "prefix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newTime := time.Now().Add(time.Second * time.Duration((len(tempFiles)+1)*10))
+	os.Chtimes(tmpFile.Name(), newTime, newTime)
+
+	bucketName := bucketDir[len(tmp)+1:]
+	b := ent.NewBucket(bucketName, ent.Owner{})
+	fs := newDiskFS(tmp)
 
 	for _, input := range listTestEntries {
-		all, err := fs.List(b, input.prefix, input.limit, ent.NoOpStrategy())
+		strategy, err := createSortStrategy("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		all, err := fs.List(b, input.prefix, input.limit, strategy)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -151,11 +167,16 @@ func TestDiskFSList(t *testing.T) {
 		}
 	}
 
-	all, err := fs.List(b, "", defaultLimit, ent.ByKeyStrategy(true))
+	strategy, err := createSortStrategy("+key")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != len(tempFiles) {
+
+	all, err := fs.List(b, "", defaultLimit, strategy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != len(tempFiles)+1 {
 		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
 	}
 	for i := 1; i < len(all); i++ {
@@ -165,13 +186,20 @@ func TestDiskFSList(t *testing.T) {
 		}
 	}
 
-	all, err = fs.List(b, "", defaultLimit, ent.ByKeyStrategy(false))
+	strategy, err = createSortStrategy("-key")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != len(tempFiles) {
+
+	all, err = fs.List(b, "", defaultLimit, strategy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(all) != len(tempFiles)+1 {
 		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
 	}
+
 	for i := 1; i < len(all); i++ {
 		if all[i-1].Key() < all[i].Key() {
 			t.Errorf("Not sorted correctly %s < %s ", all[i-1].Key(), all[i].Key())
@@ -179,13 +207,20 @@ func TestDiskFSList(t *testing.T) {
 		}
 	}
 
-	all, err = fs.List(b, "", defaultLimit, ent.ByLastModifiedStrategy(true))
+	strategy, err = createSortStrategy("+lastModified")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != len(tempFiles) {
+
+	all, err = fs.List(b, "", defaultLimit, strategy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(all) != len(tempFiles)+1 {
 		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
 	}
+
 	for i := 1; i < len(all); i++ {
 		if !all[i-1].LastModified().Before(all[i].LastModified()) {
 			t.Errorf("Not sorted correctly %s after %s ", all[i-1].LastModified(), all[i].LastModified())
@@ -193,13 +228,20 @@ func TestDiskFSList(t *testing.T) {
 		}
 	}
 
-	all, err = fs.List(b, "", defaultLimit, ent.ByLastModifiedStrategy(false))
+	strategy, err = createSortStrategy("-lastModified")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != len(tempFiles) {
+
+	all, err = fs.List(b, "", defaultLimit, strategy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(all) != len(tempFiles)+1 {
 		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
 	}
+
 	for i := 1; i < len(all); i++ {
 		if !all[i-1].LastModified().After(all[i].LastModified()) {
 			t.Errorf("Not sorted correctly %s before %s ", all[i-1].LastModified(), all[i].LastModified())
