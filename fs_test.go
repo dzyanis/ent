@@ -12,7 +12,9 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestDiskFS(t *testing.T) {
@@ -65,6 +67,139 @@ func TestDiskFS(t *testing.T) {
 	}
 }
 
+func TestDiskFSList(t *testing.T) {
+	var (
+		tempFiles = []string{
+			"temp1",
+			"temp2",
+			"temp3",
+			"temp4",
+			"temp5",
+			"prefix1",
+			"prefix2",
+			"prefix3",
+			"prefix4",
+			"one",
+		}
+		listTestEntries = []struct {
+			prefix        string
+			limit         uint64
+			expectedCount int
+		}{
+			{"temp", 1, 1},
+			{"temp", 13, 5},
+			{"unexistedPrefix", 1000, 0},
+			{"", uint64(len(tempFiles)), len(tempFiles)},
+			{"", uint64(len(tempFiles) + 1), len(tempFiles)},
+			{"", uint64(len(tempFiles) - 1), len(tempFiles) - 1},
+			{"one", 1, 1},
+			{"one", 20, 1},
+			{"o", 1, 1},
+			{"o", 20, 1},
+		}
+	)
+
+	tmp, err := ioutil.TempDir("", "ent-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+
+	bucketDir, err := ioutil.TempDir(tmp, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i, name := range tempFiles {
+		tmp, err := ioutil.TempFile(bucketDir, name)
+		if err != nil {
+			t.Fatalf("Could not setup env %s", err)
+		}
+		t := time.Now().Add(time.Second * time.Duration(i*10))
+		os.Chtimes(tmp.Name(), t, t)
+	}
+	bucketName := bucketDir[len(tmp)+1:]
+	b := NewBucket(bucketName, Owner{})
+	fs := NewDiskFS(tmp)
+
+	for _, input := range listTestEntries {
+		all, err := fs.List(b, input.prefix, input.limit, NoOpStrategy{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(all) != input.expectedCount {
+			t.Errorf("Wrong number of files actual %d != expected %d for prefix %s and limit %d",
+				len(all),
+				input.expectedCount,
+				input.prefix,
+				input.limit,
+			)
+		}
+
+		for _, file := range all {
+			if !strings.HasPrefix(file.Key(), input.prefix) {
+				t.Errorf("File %q should start with %q", file.Key(), input.prefix)
+			}
+		}
+	}
+
+	all, err := fs.List(b, "", defaultLimit, createSortStrategy("+key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != len(tempFiles) {
+		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
+	}
+	for i := 1; i < len(all); i++ {
+		if all[i-1].Key() > all[i].Key() {
+			t.Errorf("Not sorted correctly %s > %s ", all[i-1].Key(), all[i].Key())
+			break
+		}
+	}
+
+	all, err = fs.List(b, "", defaultLimit, createSortStrategy("-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != len(tempFiles) {
+		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
+	}
+	for i := 1; i < len(all); i++ {
+		if all[i-1].Key() < all[i].Key() {
+			t.Errorf("Not sorted correctly %s < %s ", all[i-1].Key(), all[i].Key())
+			break
+		}
+	}
+
+	all, err = fs.List(b, "", defaultLimit, createSortStrategy("+lastModified"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != len(tempFiles) {
+		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
+	}
+	for i := 1; i < len(all); i++ {
+		if !all[i-1].LastModified().Before(all[i].LastModified()) {
+			t.Errorf("Not sorted correctly %s after %s ", all[i-1].LastModified(), all[i].LastModified())
+			break
+		}
+	}
+
+	all, err = fs.List(b, "", defaultLimit, createSortStrategy("-lastModified"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != len(tempFiles) {
+		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
+	}
+	for i := 1; i < len(all); i++ {
+		if !all[i-1].LastModified().After(all[i].LastModified()) {
+			t.Errorf("Not sorted correctly %s before %s ", all[i-1].LastModified(), all[i].LastModified())
+		}
+	}
+}
+
 func TestFileHash(t *testing.T) {
 	testFile := "./fixture/test.zip"
 	h := sha1.New()
@@ -80,7 +215,7 @@ func TestFileHash(t *testing.T) {
 	}
 	expected := hex.EncodeToString(h.Sum(nil))
 
-	f := newFile(r)
+	f := newFile(r, "key")
 	b, err := f.Hash()
 	if err != nil {
 		t.Fatal(err)

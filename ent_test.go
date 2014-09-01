@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/gorilla/pat"
 )
@@ -31,7 +32,7 @@ func TestHandleCreate(t *testing.T) {
 	b := NewBucket("ent", Owner{})
 
 	r := pat.New()
-	r.Post(fileRoute, handleCreate(newMockProvider(b), fs))
+	r.Post(routeFile, handleCreate(newMockProvider(b), fs))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
@@ -77,16 +78,12 @@ func TestHandleCreate(t *testing.T) {
 			hex.EncodeToString(testHash.Sum(nil)),
 		)
 	}
-
-	if *resp.File.Bucket != *b {
-		t.Errorf("buckets differ: %s != %s", resp.File.Bucket, b)
-	}
 }
 
 func TestHandleCreateInvalidBucket(t *testing.T) {
 	fs := newMockFileSystem()
 	r := pat.New()
-	r.Post(fileRoute, handleCreate(newMockProvider(), fs))
+	r.Post(routeFile, handleCreate(newMockProvider(), fs))
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -98,7 +95,6 @@ func TestHandleCreateInvalidBucket(t *testing.T) {
 	defer res.Body.Close()
 
 	resp := ResponseError{}
-
 	err = json.NewDecoder(res.Body).Decode(&resp)
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +111,7 @@ func TestHandleGet(t *testing.T) {
 	b := NewBucket("ent", Owner{})
 
 	r := pat.New()
-	r.Get(fileRoute, handleGet(newMockProvider(b), fs))
+	r.Get(routeFile, handleGet(newMockProvider(b), fs))
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -160,16 +156,7 @@ func TestHandleGet(t *testing.T) {
 
 func TestHandleBucketList(t *testing.T) {
 	names := []string{"peer", "nxt", "master"}
-	bs := []*Bucket{}
-
-	for _, name := range names {
-		addr, err := mail.ParseAddress(fmt.Sprintf("%s <%s@ent.io>", name, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		b := NewBucket(name, Owner{*addr})
-		bs = append(bs, b)
-	}
+	bs := createBuckets(names, t)
 
 	r := pat.New()
 	r.Get("/", handleBucketList(newMockProvider(bs...)))
@@ -196,9 +183,76 @@ func TestHandleBucketList(t *testing.T) {
 		t.Errorf("not enough buckets returned: %d != %d", resp.Count, len(bs))
 	}
 
-	if !reflect.DeepEqual(resp.Buckets, bs) {
+	if !reflect.DeepEqual(toMap(resp.Buckets), toMap(bs)) {
 		t.Errorf("wrong answer")
 	}
+}
+
+func TestHandleFileList(t *testing.T) {
+	name := "master"
+	bs := createBuckets([]string{name}, t)
+	r := pat.New()
+	r.Get(routeBucket, handleFileList(newMockProvider(bs...), newMockFileSystem()))
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	getFiles(ts.URL+"/"+name+"?limit=1&sort=%2BlastModified", t, 0)
+	getFiles(ts.URL+"/"+name+"?prefix=list%2Ffiles&limit=10&sort=%2BlastModified", t, 10)
+	getFiles(ts.URL+"/"+name+"?prefix=list%2Ffiles", t, 10)
+	listedFiles := getFiles(ts.URL+"/master?prefix=list%2Ffiles&limit=4&sort=-key", t, 4)
+
+	for i, file := range listedFiles {
+		expected := fmt.Sprintf("list/filesname%d", i)
+		if file.Key != expected {
+			t.Errorf("%q != %q", file.Key, expected)
+		}
+	}
+
+	listedFiles = getFiles(ts.URL+"/master?prefix=list%2Ffiles&limit=4&sort=-key", t, 4)
+	for i, file := range listedFiles {
+		expected := fmt.Sprintf("list/filesname%d", i)
+		if file.Key != expected {
+			t.Fatalf("%q != %q", file.Key, expected)
+		}
+	}
+}
+
+func TestHandleInavalidParams(t *testing.T) {
+	bs := createBuckets([]string{"master"}, t)
+	r := pat.New()
+	r.Get(routeBucket, handleFileList(newMockProvider(bs...), newMockFileSystem()))
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	invalidRequests := []string{
+		"/master?prefix=listfiles&limit=4&sort=key",
+		"/master?prefix=listfiles&limit=4&sort=-key1",
+		"/master?prefix=listfiles&limit=12&sort=-1k2ey",
+		"/master?sort=%2BlastModifieddd",
+		"/master?limit=-1",
+		"/master?limit=asd",
+	}
+	for _, request := range invalidRequests {
+		res, err := http.Get(ts.URL + request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != http.StatusBadRequest {
+			t.Errorf("Request %s, response code %d != expected code %d", request, res.StatusCode, http.StatusBadRequest)
+		}
+		res.Body.Close()
+	}
+
+	res, err := http.Get(ts.URL + "/invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.StatusCode != http.StatusNotFound {
+		t.Errorf("Passing invalid bucket, response code %d != expected code %d", res.StatusCode, http.StatusNotFound)
+	}
+	res.Body.Close()
+
 }
 
 type mockFile struct {
@@ -207,6 +261,7 @@ type mockFile struct {
 	hash   hash.Hash
 	reader *bytes.Reader
 	writer *bufio.Writer
+	time   time.Time
 }
 
 func newMockFile(d []byte) *mockFile {
@@ -221,12 +276,16 @@ func newMockFile(d []byte) *mockFile {
 	f.buffer = bytes.NewBuffer(f.data)
 	f.reader = bytes.NewReader(f.data)
 	f.writer = bufio.NewWriter(f.buffer)
-
+	f.time = time.Now()
 	return f
 }
 
 func (f *mockFile) Close() error {
 	return nil
+}
+
+func (f *mockFile) Key() string {
+	return ""
 }
 
 func (f *mockFile) Hash() ([]byte, error) {
@@ -248,6 +307,10 @@ func (f *mockFile) Write(p []byte) (int, error) {
 	}
 
 	return f.writer.Write(p)
+}
+
+func (f *mockFile) LastModified() time.Time {
+	return f.time
 }
 
 type mockFileSystem struct {
@@ -278,6 +341,21 @@ func (fs *mockFileSystem) Open(bucket *Bucket, key string) (File, error) {
 		return nil, ErrFileNotFound
 	}
 	return f, nil
+}
+
+func (fs *mockFileSystem) List(bucket *Bucket, prefix string, limit uint64, sort SortStrategy) (Files, error) {
+	if prefix == "list/files" {
+		f, _ := os.Open("fixture/test.zip")
+		files := []File{}
+		for i := 0; i < 10; i++ {
+			files = append(files, newFile(f, prefix+""+fmt.Sprintf("name%d", i)))
+		}
+		if uint64(len(files)) > limit {
+			return files[:limit], nil
+		}
+		return files, nil
+	}
+	return []File{}, nil
 }
 
 type mockProvider struct {
@@ -314,4 +392,52 @@ func (p *mockProvider) List() ([]*Bucket, error) {
 		bs = append(bs, b)
 	}
 	return bs, nil
+}
+
+func getFiles(url string, t *testing.T, expectedCount int) []ResponseFile {
+	res, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+
+	response := ResponseFileList{}
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listedFiles := response.Files
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("HTTP %d", res.StatusCode)
+	}
+
+	if len(listedFiles) != expectedCount {
+		t.Errorf("not write count of files returned: %d != %d for request %s", len(listedFiles), expectedCount, url)
+	}
+	if response.Count != expectedCount {
+		t.Errorf("not metainfo for count of files returned: %d != %d for request %s", response.Count, expectedCount, url)
+	}
+	return listedFiles
+}
+
+func toMap(bucketsList []*Bucket) map[Bucket]int {
+	bucketMap := map[Bucket]int{}
+	for _, bucket := range bucketsList {
+		bucketMap[*bucket]++
+	}
+	return bucketMap
+}
+
+func createBuckets(names []string, t *testing.T) []*Bucket {
+	bs := []*Bucket{}
+	for _, name := range names {
+		addr, err := mail.ParseAddress(fmt.Sprintf("%s <%s@ent.io>", name, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b := NewBucket(name, Owner{*addr})
+		bs = append(bs, b)
+	}
+	return bs
 }

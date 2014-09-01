@@ -6,11 +6,11 @@
 package main
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"io"
 	logpkg "log"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -23,7 +23,14 @@ import (
 )
 
 const (
-	fileRoute = `/{bucket}/{key:[a-zA-Z0-9\-_\.~\+\/]+}`
+	routeBucket = `/{bucket}`
+	routeFile   = `/{bucket}/{key:[a-zA-Z0-9\-_\.~\+\/]+}`
+
+	paramLimit  = "limit"
+	paramPrefix = "prefix"
+	paramSort   = "sort"
+
+	defaultLimit uint64 = math.MaxUint64
 )
 
 var (
@@ -91,7 +98,7 @@ func main() {
 	r.Handle("/metrics", prometheus.Handler())
 	r.Add(
 		"GET",
-		fileRoute,
+		routeFile,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -101,8 +108,19 @@ func main() {
 		),
 	)
 	r.Add(
+		"GET",
+		routeBucket,
+		report.JSON(
+			os.Stdout,
+			metrics(
+				"handleFileList",
+				handleFileList(p, fs),
+			),
+		),
+	)
+	r.Add(
 		"POST",
-		fileRoute,
+		routeFile,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -122,7 +140,6 @@ func main() {
 			),
 		),
 	)
-
 	log.Printf("listening on %s", *httpAddress)
 	log.Fatal(http.ListenAndServe(*httpAddress, http.Handler(r)))
 }
@@ -147,6 +164,8 @@ func handleCreate(p Provider, fs FileSystem) http.HandlerFunc {
 			respondError(w, r, err)
 			return
 		}
+		defer f.Close()
+
 		h, err := f.Hash()
 		if err != nil {
 			respondError(w, r, err)
@@ -156,9 +175,10 @@ func handleCreate(p Provider, fs FileSystem) http.HandlerFunc {
 		respondJSON(w, http.StatusCreated, ResponseCreated{
 			Duration: time.Since(start),
 			File: ResponseFile{
-				Bucket: b,
-				Key:    key,
-				SHA1:   h,
+				Key:          key,
+				SHA1:         h,
+				Bucket:       b,
+				LastModified: f.LastModified(),
 			},
 		})
 	}
@@ -182,6 +202,7 @@ func handleGet(p Provider, fs FileSystem) http.HandlerFunc {
 			respondError(w, r, err)
 			return
 		}
+		defer f.Close()
 
 		http.ServeContent(w, r, key, time.Now(), f)
 	}
@@ -190,7 +211,7 @@ func handleGet(p Provider, fs FileSystem) http.HandlerFunc {
 func handleBucketList(p Provider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			began = time.Now()
+			start = time.Now()
 		)
 
 		bs, err := p.List()
@@ -201,99 +222,67 @@ func handleBucketList(p Provider) http.HandlerFunc {
 
 		respondJSON(w, http.StatusOK, ResponseBucketList{
 			Count:    len(bs),
-			Duration: time.Since(began),
+			Duration: time.Since(start),
 			Buckets:  bs,
 		})
 	}
 }
 
-// ResponseCreated is used as the intermediate type to craft a response for
-// a successful file upload.
-type ResponseCreated struct {
-	Duration time.Duration `json:"duration"`
-	File     ResponseFile  `json:"file"`
-}
+func handleFileList(p Provider, fs FileSystem) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var (
+			start      = time.Now()
+			limit      = defaultLimit
+			bucket     = r.URL.Query().Get(":bucket")
+			limitValue = r.URL.Query().Get(paramLimit)
+			prefix     = r.URL.Query().Get(paramPrefix)
+			sortValue  = r.URL.Query().Get(paramSort)
+		)
 
-// ResponseBucketList is used as the intermediate type to craft a response for
-// the retrieval of all buckets.
-type ResponseBucketList struct {
-	Count    int           `json:"count"`
-	Duration time.Duration `json:"duration"`
-	Buckets  []*Bucket     `json:"buckets"`
-}
+		b, err := p.Get(bucket)
+		if err != nil {
+			respondError(w, r, err)
+			return
+		}
 
-// ResponseError is used as the intermediate type to craft a response for any
-// kind of error condition in the http path. This includes common error cases
-// like an entity could not be found.
-type ResponseError struct {
-	Code        int    `json:"code"`
-	Error       string `json:"error"`
-	Description string `json:"description"`
-}
+		if limitValue != "" {
+			limit, err = strconv.ParseUint(limitValue, 10, 64)
+			if err != nil {
+				respondError(w, r, ErrInvalidParam)
+				return
+			}
+		}
 
-func respondError(w http.ResponseWriter, r *http.Request, err error) {
-	code := http.StatusInternalServerError
+		err = validateSortParam(sortValue)
+		if err != nil {
+			respondError(w, r, err)
+			return
+		}
 
-	switch err {
-	case ErrBucketNotFound, ErrFileNotFound:
-		code = http.StatusNotFound
+		sortStrategy := createSortStrategy(sortValue)
+
+		files, err := fs.List(b, prefix, limit, sortStrategy)
+		if err != nil {
+			respondError(w, r, err)
+			return
+		}
+
+		responseFiles, err := createResponseFiles(files, b)
+		if err != nil {
+			respondError(w, r, err)
+			return
+		}
+		for _, file := range files {
+			defer file.Close()
+		}
+
+		respondJSON(w, http.StatusOK, ResponseFileList{
+			Count:    len(responseFiles),
+			Duration: time.Since(start),
+			Bucket:   b,
+			Files:    responseFiles,
+		})
 	}
-
-	respondJSON(w, code, ResponseError{
-		Code:        code,
-		Error:       err.Error(),
-		Description: http.StatusText(code),
-	})
-}
-
-func respondJSON(w http.ResponseWriter, code int, payload interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(payload)
-}
-
-// ResponseFile is used as the intermediate type to return metadata of a File.
-type ResponseFile struct {
-	Bucket *Bucket
-	Key    string
-	SHA1   []byte
-}
-
-// MarshalJSON returns a ResponseFile JSON encoding with conversion of the
-// files SHA1 to hex.
-func (r ResponseFile) MarshalJSON() ([]byte, error) {
-	return json.Marshal(responseFileWrapper{
-		Bucket: r.Bucket,
-		Key:    r.Key,
-		SHA1:   hex.EncodeToString(r.SHA1),
-	})
-}
-
-// UnmarshalJSON marshals data into *r with conversion of the hex
-// representation of SHA1 into a []byte.
-func (r *ResponseFile) UnmarshalJSON(d []byte) error {
-	var w responseFileWrapper
-
-	err := json.Unmarshal(d, &w)
-	if err != nil {
-		return err
-	}
-	h, err := hex.DecodeString(w.SHA1)
-	if err != nil {
-		return err
-	}
-
-	r.Bucket = w.Bucket
-	r.Key = w.Key
-	r.SHA1 = h
-
-	return nil
-}
-
-type responseFileWrapper struct {
-	Bucket *Bucket `json:"bucket"`
-	Key    string  `json:"key"`
-	SHA1   string  `json:"sha1"`
 }
 
 func metrics(op string, next http.Handler) http.Handler {
@@ -322,6 +311,29 @@ func metrics(op string, next http.Handler) http.Handler {
 	})
 }
 
+func respondError(w http.ResponseWriter, r *http.Request, err error) {
+	code := http.StatusInternalServerError
+
+	switch err {
+	case ErrBucketNotFound, ErrFileNotFound:
+		code = http.StatusNotFound
+	case ErrInvalidParam:
+		code = http.StatusBadRequest
+	}
+
+	respondJSON(w, code, ResponseError{
+		Code:        code,
+		Error:       err.Error(),
+		Description: http.StatusText(code),
+	})
+}
+
+func respondJSON(w http.ResponseWriter, code int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(payload)
+}
+
 type readerDelegator struct {
 	io.ReadCloser
 	BytesRead int
@@ -348,4 +360,40 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 func (r *responseRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
+}
+
+func createResponseFiles(files []File, bucket *Bucket) ([]ResponseFile, error) {
+	responseFiles := make([]ResponseFile, len(files))
+	for i, file := range files {
+		h, err := file.Hash()
+		if err != nil {
+			return nil, err
+		}
+
+		responseFiles[i] = ResponseFile{
+			Key:          file.Key(),
+			SHA1:         h,
+			LastModified: file.LastModified(),
+			Bucket:       bucket,
+		}
+	}
+	return responseFiles, nil
+}
+
+func validateSortParam(param string) error {
+	if param == "" {
+		return nil
+	}
+
+	order := param[:1]
+	if order != ascending && order != descending {
+		return ErrInvalidParam
+	}
+
+	criterion := param[1:]
+	if criterion != key && criterion != lastModified {
+		return ErrInvalidParam
+	}
+
+	return nil
 }
