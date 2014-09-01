@@ -13,6 +13,7 @@ import (
 var (
 	ErrBucketNotFound = errors.New("bucket not found")
 	ErrFileNotFound   = errors.New("file not found")
+	ErrInvalidParam   = errors.New("invalid param")
 )
 
 // IsBucketNotFound returns a boolean indicating the error is
