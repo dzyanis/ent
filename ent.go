@@ -19,6 +19,7 @@ import (
 
 	"github.com/gorilla/pat"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/soundcloud/ent/lib"
 	"github.com/streadway/handy/report"
 )
 
@@ -29,6 +30,11 @@ const (
 	paramLimit  = "limit"
 	paramPrefix = "prefix"
 	paramSort   = "sort"
+
+	orderKey          = "key"
+	orderLastModified = "lastModified"
+	orderAscending    = "+"
+	orderDescending   = "-"
 
 	defaultLimit uint64 = math.MaxUint64
 )
@@ -86,11 +92,11 @@ func main() {
 	prometheus.MustRegister(responseBytes)
 
 	var (
-		fs = NewDiskFS(*fsRoot)
+		fs = newDiskFS(*fsRoot)
 		r  = pat.New()
 	)
 
-	p, err := NewDiskProvider(*providerDir)
+	p, err := newDiskProvider(*providerDir)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -144,7 +150,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(*httpAddress, http.Handler(r)))
 }
 
-func handleCreate(p Provider, fs FileSystem) http.HandlerFunc {
+func handleCreate(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
 			start  = time.Now()
@@ -172,9 +178,9 @@ func handleCreate(p Provider, fs FileSystem) http.HandlerFunc {
 			return
 		}
 
-		respondJSON(w, http.StatusCreated, ResponseCreated{
+		respondJSON(w, http.StatusCreated, ent.ResponseCreated{
 			Duration: time.Since(start),
-			File: ResponseFile{
+			File: ent.ResponseFile{
 				Key:          key,
 				SHA1:         h,
 				Bucket:       b,
@@ -184,7 +190,7 @@ func handleCreate(p Provider, fs FileSystem) http.HandlerFunc {
 	}
 }
 
-func handleGet(p Provider, fs FileSystem) http.HandlerFunc {
+func handleGet(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
 			bucket = r.URL.Query().Get(":bucket")
@@ -208,7 +214,7 @@ func handleGet(p Provider, fs FileSystem) http.HandlerFunc {
 	}
 }
 
-func handleBucketList(p Provider) http.HandlerFunc {
+func handleBucketList(p ent.Provider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
 			start = time.Now()
@@ -220,7 +226,7 @@ func handleBucketList(p Provider) http.HandlerFunc {
 			return
 		}
 
-		respondJSON(w, http.StatusOK, ResponseBucketList{
+		respondJSON(w, http.StatusOK, ent.ResponseBucketList{
 			Count:    len(bs),
 			Duration: time.Since(start),
 			Buckets:  bs,
@@ -228,7 +234,7 @@ func handleBucketList(p Provider) http.HandlerFunc {
 	}
 }
 
-func handleFileList(p Provider, fs FileSystem) http.HandlerFunc {
+func handleFileList(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
 			start      = time.Now()
@@ -248,18 +254,16 @@ func handleFileList(p Provider, fs FileSystem) http.HandlerFunc {
 		if limitValue != "" {
 			limit, err = strconv.ParseUint(limitValue, 10, 64)
 			if err != nil {
-				respondError(w, r, ErrInvalidParam)
+				respondError(w, r, ent.ErrInvalidParam)
 				return
 			}
 		}
 
-		err = validateSortParam(sortValue)
+		sortStrategy, err := createSortStrategy(sortValue)
 		if err != nil {
 			respondError(w, r, err)
 			return
 		}
-
-		sortStrategy := createSortStrategy(sortValue)
 
 		files, err := fs.List(b, prefix, limit, sortStrategy)
 		if err != nil {
@@ -276,7 +280,7 @@ func handleFileList(p Provider, fs FileSystem) http.HandlerFunc {
 			defer file.Close()
 		}
 
-		respondJSON(w, http.StatusOK, ResponseFileList{
+		respondJSON(w, http.StatusOK, ent.ResponseFileList{
 			Count:    len(responseFiles),
 			Duration: time.Since(start),
 			Bucket:   b,
@@ -315,13 +319,13 @@ func respondError(w http.ResponseWriter, r *http.Request, err error) {
 	code := http.StatusInternalServerError
 
 	switch err {
-	case ErrBucketNotFound, ErrFileNotFound:
+	case ent.ErrBucketNotFound, ent.ErrFileNotFound:
 		code = http.StatusNotFound
-	case ErrInvalidParam:
+	case ent.ErrInvalidParam:
 		code = http.StatusBadRequest
 	}
 
-	respondJSON(w, code, ResponseError{
+	respondJSON(w, code, ent.ResponseError{
 		Code:        code,
 		Error:       err.Error(),
 		Description: http.StatusText(code),
@@ -362,15 +366,15 @@ func (r *responseRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-func createResponseFiles(files []File, bucket *Bucket) ([]ResponseFile, error) {
-	responseFiles := make([]ResponseFile, len(files))
+func createResponseFiles(files ent.Files, bucket *ent.Bucket) ([]ent.ResponseFile, error) {
+	responseFiles := make([]ent.ResponseFile, len(files))
 	for i, file := range files {
 		h, err := file.Hash()
 		if err != nil {
 			return nil, err
 		}
 
-		responseFiles[i] = ResponseFile{
+		responseFiles[i] = ent.ResponseFile{
 			Key:          file.Key(),
 			SHA1:         h,
 			LastModified: file.LastModified(),
@@ -380,20 +384,36 @@ func createResponseFiles(files []File, bucket *Bucket) ([]ResponseFile, error) {
 	return responseFiles, nil
 }
 
-func validateSortParam(param string) error {
-	if param == "" {
-		return nil
+func createSortStrategy(value string) (ent.SortStrategy, error) {
+	if value == "" {
+		return ent.NoOpStrategy(), nil
+	}
+	if len(value) == 1 {
+		return nil, ent.ErrInvalidParam
 	}
 
-	order := param[:1]
-	if order != ascending && order != descending {
-		return ErrInvalidParam
+	var (
+		asc       = true
+		order     = value[:1]
+		criterion = value[1:]
+	)
+
+	// check if the sort param starts the "+" or "-"
+	switch order {
+	case orderAscending:
+		// nothing to do
+	case orderDescending:
+		asc = false
+	default:
+		return nil, ent.ErrInvalidParam
 	}
 
-	criterion := param[1:]
-	if criterion != key && criterion != lastModified {
-		return ErrInvalidParam
+	switch criterion {
+	case orderKey:
+		return ent.ByKeyStrategy(asc), nil
+	case orderLastModified:
+		return ent.ByLastModifiedStrategy(asc), nil
+	default:
+		return nil, ent.ErrInvalidParam
 	}
-
-	return nil
 }

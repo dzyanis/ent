@@ -10,10 +10,12 @@ import (
 	"net/mail"
 	"reflect"
 	"testing"
+
+	"github.com/soundcloud/ent/lib"
 )
 
 func TestDiskProviderInit(t *testing.T) {
-	p, err := NewDiskProvider("./fixture")
+	p, err := newDiskProvider("./fixture")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +28,7 @@ func TestDiskProviderInit(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		expected := NewBucket(name, Owner{*addr})
+		expected := ent.NewBucket(name, ent.Owner{Email: *addr})
 		got, err := p.Get(name)
 		if err != nil {
 			t.Errorf("error retrieving %s: %s", name, err)
@@ -51,13 +53,13 @@ func TestDiskProviderInit(t *testing.T) {
 }
 
 func TestDiskProviderBucketNotFound(t *testing.T) {
-	p, err := NewDiskProvider("./fixtures")
+	p, err := newDiskProvider("./fixtures")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	_, err = p.Get("fake-bucket")
-	if !IsBucketNotFound(err) {
+	if !ent.IsBucketNotFound(err) {
 		t.Errorf("got wrong error: %s", err)
 	}
 }
