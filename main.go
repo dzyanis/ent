@@ -1,8 +1,3 @@
-// Copyright (c) 2014, SoundCloud Ltd.
-// Use of this source code is governed by the MIT
-// license that can be found in the LICENSE file.
-// Source code and contact info at http://github.com/soundcloud/ent
-
 package main
 
 import (
@@ -39,11 +34,15 @@ const (
 	defaultLimit uint64 = math.MaxUint64
 )
 
+// Buildtime variables
 var (
 	Program = "ent"
 	Commit  = "0000000"
 	Version = "0.0.0"
+)
 
+// Telemetry
+var (
 	labelNames = []string{"bucket", "method", "operation", "status"}
 
 	requestDurations = prometheus.NewSummaryVec(

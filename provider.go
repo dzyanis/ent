@@ -1,12 +1,8 @@
-// Copyright (c) 2014, SoundCloud Ltd.
-// Use of this source code is governed by the MIT
-// license that can be found in the LICENSE file.
-// Source code and contact info at http://github.com/soundcloud/ent
-
 package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -62,12 +58,16 @@ func (p *diskProvider) loadBucket(name string) error {
 		return err
 	}
 
+	// TODO(alx): Validate bucket configuration.
 	p.buckets[b.Name] = b
 
 	return nil
 }
 
 func (p *diskProvider) walk(path string, f os.FileInfo, err error) error {
+	if err != nil {
+		return fmt.Errorf("walking provider dir: %s", err)
+	}
 	if path != p.dir && f.IsDir() {
 		return filepath.SkipDir
 	}

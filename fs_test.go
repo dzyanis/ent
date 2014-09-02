@@ -1,8 +1,3 @@
-// Copyright (c) 2014, SoundCloud Ltd.
-// Use of this source code is governed by the MIT
-// license that can be found in the LICENSE file.
-// Source code and contact info at http://github.com/soundcloud/ent
-
 package main
 
 import (
@@ -26,11 +21,13 @@ func TestDiskFS(t *testing.T) {
 	}
 	defer os.RemoveAll(tmp)
 
-	b := ent.NewBucket("create", ent.Owner{})
-	fs := newDiskFS(tmp)
+	var (
+		b        = ent.NewBucket("create", ent.Owner{})
+		fs       = newDiskFS(tmp)
+		h        = sha1.New()
+		testFile = "./fixture/test.zip"
+	)
 
-	testFile := "./fixture/test.zip"
-	h := sha1.New()
 	r, err := os.Open(testFile)
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +51,7 @@ func TestDiskFS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	s := sha1.New()
 
 	_, err = io.Copy(s, f)
@@ -61,8 +59,10 @@ func TestDiskFS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := hex.EncodeToString(h.Sum(nil))
-	got := hex.EncodeToString(s.Sum(nil))
+	var (
+		expected = hex.EncodeToString(h.Sum(nil))
+		got      = hex.EncodeToString(s.Sum(nil))
+	)
 
 	if got != expected {
 		t.Errorf("hash miss-match: %s != %s", got, expected)
@@ -72,19 +72,20 @@ func TestDiskFS(t *testing.T) {
 func TestDiskFSList(t *testing.T) {
 	var (
 		tempFiles = []string{
+			"one",
+			"prefix1",
+			"prefix2",
+			"prefix3",
+			"prefix4",
 			"temp1",
 			"temp2",
 			"temp3",
 			"temp4",
 			"temp5",
-			"prefix1",
-			"prefix2",
-			"prefix3",
-			"prefix4",
-			"one",
+			"test/depth",
 		}
 
-		blobsCount = uint64(len(tempFiles)) + 1
+		blobsCount = uint64(len(tempFiles))
 
 		listTestEntries = []struct {
 			prefix        string
@@ -116,53 +117,59 @@ func TestDiskFSList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for i, name := range tempFiles {
-		tmp, err := ioutil.TempFile(bucketDir, name)
-		if err != nil {
-			t.Fatalf("Could not setup env %s", err)
+	for i, input := range tempFiles {
+		var (
+			parts   = strings.SplitN(input, "/", 2)
+			newTime = time.Now().Add(time.Second * time.Duration(i*10))
+			dir     = bucketDir
+			name    = parts[0]
+
+			err error
+		)
+
+		if len(parts) == 2 {
+			dir, err = ioutil.TempDir(bucketDir, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			name = parts[1]
 		}
-		newTime := time.Now().Add(time.Second * time.Duration(i*10))
-		os.Chtimes(tmp.Name(), newTime, newTime)
+
+		tmp, err := ioutil.TempFile(dir, name)
+		if err != nil {
+			t.Fatalf("create temp file: %s", err)
+		}
+
+		err = os.Chtimes(tmp.Name(), newTime, newTime)
+		if err != nil {
+			t.Fatalf("change times: %s", err)
+		}
 	}
 
-	tmpDir, err := ioutil.TempDir(bucketDir, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tmpFile, err := ioutil.TempFile(tmpDir, "prefix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	newTime := time.Now().Add(time.Second * time.Duration((len(tempFiles)+1)*10))
-	os.Chtimes(tmpFile.Name(), newTime, newTime)
-
-	bucketName := bucketDir[len(tmp)+1:]
-	b := ent.NewBucket(bucketName, ent.Owner{})
-	fs := newDiskFS(tmp)
+	var (
+		b  = ent.NewBucket(filepath.Base(bucketDir), ent.Owner{})
+		fs = newDiskFS(tmp)
+	)
 
 	for _, input := range listTestEntries {
-		strategy, err := createSortStrategy("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		all, err := fs.List(b, input.prefix, input.limit, strategy)
+		all, err := fs.List(b, input.prefix, input.limit, ent.NoOpStrategy())
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		if len(all) != input.expectedCount {
-			t.Errorf("Wrong number of files actual %d != expected %d for prefix %s and limit %d",
-				len(all),
-				input.expectedCount,
+			t.Errorf(
+				"wrong number of files for %q(%d): %d != %d",
 				input.prefix,
 				input.limit,
+				len(all),
+				input.expectedCount,
 			)
 		}
 
 		for _, file := range all {
 			if !strings.HasPrefix(file.Key(), input.prefix) {
-				t.Errorf("File %q should start with %q", file.Key(), input.prefix)
+				t.Errorf("%q should start with %q", file.Key(), input.prefix)
 			}
 		}
 	}
@@ -176,12 +183,12 @@ func TestDiskFSList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != len(tempFiles)+1 {
-		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
+	if len(all) != len(tempFiles) {
+		t.Fatalf("wrong number of files: %d != %d", len(all), len(tempFiles))
 	}
 	for i := 1; i < len(all); i++ {
 		if all[i-1].Key() > all[i].Key() {
-			t.Errorf("Not sorted correctly %s > %s ", all[i-1].Key(), all[i].Key())
+			t.Errorf("not sorted correctly %s > %s ", all[i-1].Key(), all[i].Key())
 			break
 		}
 	}
@@ -196,13 +203,13 @@ func TestDiskFSList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(all) != len(tempFiles)+1 {
-		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
+	if len(all) != len(tempFiles) {
+		t.Fatalf("wrong number of files: %d != %d", len(all), len(tempFiles))
 	}
 
 	for i := 1; i < len(all); i++ {
 		if all[i-1].Key() < all[i].Key() {
-			t.Errorf("Not sorted correctly %s < %s ", all[i-1].Key(), all[i].Key())
+			t.Errorf("not sorted correctly %s < %s ", all[i-1].Key(), all[i].Key())
 			break
 		}
 	}
@@ -217,13 +224,13 @@ func TestDiskFSList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(all) != len(tempFiles)+1 {
-		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
+	if len(all) != len(tempFiles) {
+		t.Fatalf("wrong number of files: %d != %d", len(all), len(tempFiles))
 	}
 
 	for i := 1; i < len(all); i++ {
 		if !all[i-1].LastModified().Before(all[i].LastModified()) {
-			t.Errorf("Not sorted correctly %s after %s ", all[i-1].LastModified(), all[i].LastModified())
+			t.Errorf("not sorted correctly %s after %s ", all[i-1].LastModified(), all[i].LastModified())
 			break
 		}
 	}
@@ -238,13 +245,13 @@ func TestDiskFSList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(all) != len(tempFiles)+1 {
-		t.Fatalf("Wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
+	if len(all) != len(tempFiles) {
+		t.Fatalf("wrong number of files actual %d !=  expected %d", len(all), len(tempFiles))
 	}
 
 	for i := 1; i < len(all); i++ {
 		if !all[i-1].LastModified().After(all[i].LastModified()) {
-			t.Errorf("Not sorted correctly %s before %s ", all[i-1].LastModified(), all[i].LastModified())
+			t.Errorf("not sorted correctly %s before %s ", all[i-1].LastModified(), all[i].LastModified())
 		}
 	}
 }

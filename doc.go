@@ -1,8 +1,3 @@
-// Copyright (c) 2014, SoundCloud Ltd.
-// Use of this source code is governed by the MIT
-// license that can be found in the LICENSE file.
-// Source code and contact info at http://github.com/soundcloud/ent
-
 /*
 Ent provides a small HTTP interface to manage blobs namespace partitioned by
 buckets. Depending on the FileSystem implementation used ent needs to run as a
