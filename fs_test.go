@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/soundcloud/ent/lib"
 )
 
 func TestDiskFS(t *testing.T) {
@@ -24,8 +26,10 @@ func TestDiskFS(t *testing.T) {
 	}
 	defer os.RemoveAll(tmp)
 
-	b := NewBucket("create", Owner{})
-	fs := NewDiskFS(tmp)
+	var (
+		b  = ent.NewBucket("create", ent.Owner{})
+		fs = newDiskFS(tmp)
+	)
 
 	testFile := "./fixture/test.zip"
 	h := sha1.New()
@@ -118,12 +122,15 @@ func TestDiskFSList(t *testing.T) {
 		t := time.Now().Add(time.Second * time.Duration(i*10))
 		os.Chtimes(tmp.Name(), t, t)
 	}
-	bucketName := bucketDir[len(tmp)+1:]
-	b := NewBucket(bucketName, Owner{})
-	fs := NewDiskFS(tmp)
+
+	var (
+		bucketName = bucketDir[len(tmp)+1:]
+		b          = ent.NewBucket(bucketName, ent.Owner{})
+		fs         = newDiskFS(tmp)
+	)
 
 	for _, input := range listTestEntries {
-		all, err := fs.List(b, input.prefix, input.limit, NoOpStrategy{})
+		all, err := fs.List(b, input.prefix, input.limit, ent.NoOpStrategy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +151,7 @@ func TestDiskFSList(t *testing.T) {
 		}
 	}
 
-	all, err := fs.List(b, "", defaultLimit, createSortStrategy("+key"))
+	all, err := fs.List(b, "", defaultLimit, ent.ByKeyStrategy(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +165,7 @@ func TestDiskFSList(t *testing.T) {
 		}
 	}
 
-	all, err = fs.List(b, "", defaultLimit, createSortStrategy("-key"))
+	all, err = fs.List(b, "", defaultLimit, ent.ByKeyStrategy(false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +179,7 @@ func TestDiskFSList(t *testing.T) {
 		}
 	}
 
-	all, err = fs.List(b, "", defaultLimit, createSortStrategy("+lastModified"))
+	all, err = fs.List(b, "", defaultLimit, ent.ByLastModifiedStrategy(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +193,7 @@ func TestDiskFSList(t *testing.T) {
 		}
 	}
 
-	all, err = fs.List(b, "", defaultLimit, createSortStrategy("-lastModified"))
+	all, err = fs.List(b, "", defaultLimit, ent.ByLastModifiedStrategy(false))
 	if err != nil {
 		t.Fatal(err)
 	}

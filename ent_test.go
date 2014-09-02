@@ -25,11 +25,12 @@ import (
 	"time"
 
 	"github.com/gorilla/pat"
+	"github.com/soundcloud/ent/lib"
 )
 
 func TestHandleCreate(t *testing.T) {
 	fs := newMockFileSystem()
-	b := NewBucket("ent", Owner{})
+	b := ent.NewBucket("ent", ent.Owner{})
 
 	r := pat.New()
 	r.Post(routeFile, handleCreate(newMockProvider(b), fs))
@@ -56,7 +57,7 @@ func TestHandleCreate(t *testing.T) {
 	}
 	defer res.Body.Close()
 
-	resp := ResponseCreated{}
+	resp := ent.ResponseCreated{}
 
 	err = json.NewDecoder(res.Body).Decode(&resp)
 	if err != nil {
@@ -94,7 +95,7 @@ func TestHandleCreateInvalidBucket(t *testing.T) {
 	}
 	defer res.Body.Close()
 
-	resp := ResponseError{}
+	resp := ent.ResponseError{}
 	err = json.NewDecoder(res.Body).Decode(&resp)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +109,7 @@ func TestHandleCreateInvalidBucket(t *testing.T) {
 func TestHandleGet(t *testing.T) {
 	fs := newMockFileSystem()
 
-	b := NewBucket("ent", Owner{})
+	b := ent.NewBucket("ent", ent.Owner{})
 
 	r := pat.New()
 	r.Get(routeFile, handleGet(newMockProvider(b), fs))
@@ -169,7 +170,7 @@ func TestHandleBucketList(t *testing.T) {
 	}
 	defer res.Body.Close()
 
-	resp := ResponseBucketList{}
+	resp := ent.ResponseBucketList{}
 	err = json.NewDecoder(res.Body).Decode(&resp)
 	if err != nil {
 		t.Fatal(err)
@@ -314,16 +315,16 @@ func (f *mockFile) LastModified() time.Time {
 }
 
 type mockFileSystem struct {
-	files map[string]File
+	files map[string]ent.File
 }
 
 func newMockFileSystem() *mockFileSystem {
 	return &mockFileSystem{
-		files: map[string]File{},
+		files: map[string]ent.File{},
 	}
 }
 
-func (fs *mockFileSystem) Create(bucket *Bucket, key string, src io.Reader) (File, error) {
+func (fs *mockFileSystem) Create(bucket *ent.Bucket, key string, src io.Reader) (ent.File, error) {
 	f := newMockFile(nil)
 	_, err := io.Copy(f, src)
 	if err != nil {
@@ -335,18 +336,18 @@ func (fs *mockFileSystem) Create(bucket *Bucket, key string, src io.Reader) (Fil
 	return f, nil
 }
 
-func (fs *mockFileSystem) Open(bucket *Bucket, key string) (File, error) {
+func (fs *mockFileSystem) Open(bucket *ent.Bucket, key string) (ent.File, error) {
 	f, ok := fs.files[filepath.Join(bucket.Name, key)]
 	if !ok {
-		return nil, ErrFileNotFound
+		return nil, ent.ErrFileNotFound
 	}
 	return f, nil
 }
 
-func (fs *mockFileSystem) List(bucket *Bucket, prefix string, limit uint64, sort SortStrategy) (Files, error) {
+func (fs *mockFileSystem) List(bucket *ent.Bucket, prefix string, limit uint64, sort ent.SortStrategy) (ent.Files, error) {
 	if prefix == "list/files" {
 		f, _ := os.Open("fixture/test.zip")
-		files := []File{}
+		files := []ent.File{}
 		for i := 0; i < 10; i++ {
 			files = append(files, newFile(f, prefix+""+fmt.Sprintf("name%d", i)))
 		}
@@ -355,16 +356,16 @@ func (fs *mockFileSystem) List(bucket *Bucket, prefix string, limit uint64, sort
 		}
 		return files, nil
 	}
-	return []File{}, nil
+	return []ent.File{}, nil
 }
 
 type mockProvider struct {
-	buckets map[string]*Bucket
+	buckets map[string]*ent.Bucket
 }
 
-func newMockProvider(buckets ...*Bucket) Provider {
+func newMockProvider(buckets ...*ent.Bucket) ent.Provider {
 	p := &mockProvider{
-		buckets: map[string]*Bucket{},
+		buckets: map[string]*ent.Bucket{},
 	}
 
 	for _, b := range buckets {
@@ -374,10 +375,10 @@ func newMockProvider(buckets ...*Bucket) Provider {
 	return p
 }
 
-func (p *mockProvider) Get(name string) (*Bucket, error) {
+func (p *mockProvider) Get(name string) (*ent.Bucket, error) {
 	b, ok := p.buckets[name]
 	if !ok {
-		return nil, ErrBucketNotFound
+		return nil, ent.ErrBucketNotFound
 	}
 	return b, nil
 }
@@ -386,22 +387,22 @@ func (p *mockProvider) Init() error {
 	return nil
 }
 
-func (p *mockProvider) List() ([]*Bucket, error) {
-	bs := []*Bucket{}
+func (p *mockProvider) List() ([]*ent.Bucket, error) {
+	bs := []*ent.Bucket{}
 	for _, b := range p.buckets {
 		bs = append(bs, b)
 	}
 	return bs, nil
 }
 
-func getFiles(url string, t *testing.T, expectedCount int) []ResponseFile {
+func getFiles(url string, t *testing.T, expectedCount int) []ent.ResponseFile {
 	res, err := http.Get(url)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
 
-	response := ResponseFileList{}
+	response := ent.ResponseFileList{}
 	err = json.NewDecoder(res.Body).Decode(&response)
 	if err != nil {
 		t.Fatal(err)
@@ -421,22 +422,22 @@ func getFiles(url string, t *testing.T, expectedCount int) []ResponseFile {
 	return listedFiles
 }
 
-func toMap(bucketsList []*Bucket) map[Bucket]int {
-	bucketMap := map[Bucket]int{}
+func toMap(bucketsList []*ent.Bucket) map[ent.Bucket]int {
+	bucketMap := map[ent.Bucket]int{}
 	for _, bucket := range bucketsList {
 		bucketMap[*bucket]++
 	}
 	return bucketMap
 }
 
-func createBuckets(names []string, t *testing.T) []*Bucket {
-	bs := []*Bucket{}
+func createBuckets(names []string, t *testing.T) []*ent.Bucket {
+	bs := []*ent.Bucket{}
 	for _, name := range names {
 		addr, err := mail.ParseAddress(fmt.Sprintf("%s <%s@ent.io>", name, name))
 		if err != nil {
 			t.Fatal(err)
 		}
-		b := NewBucket(name, Owner{*addr})
+		b := ent.NewBucket(name, ent.Owner{Email: *addr})
 		bs = append(bs, b)
 	}
 	return bs

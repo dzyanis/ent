@@ -7,34 +7,43 @@ package main
 
 import (
 	"encoding/json"
-	"net/mail"
 	"os"
 	"path/filepath"
+
+	"github.com/soundcloud/ent/lib"
 )
 
 const policyExt = ".entpolicy"
 
-// A Provider implements access to a collection of Buckets.
-type Provider interface {
-	Get(name string) (*Bucket, error)
-	List() ([]*Bucket, error)
-}
-
 type diskProvider struct {
-	buckets map[string]*Bucket
+	buckets map[string]*ent.Bucket
 	dir     string
 }
 
-func (p *diskProvider) Get(name string) (*Bucket, error) {
+func newDiskProvider(dir string) (ent.Provider, error) {
+	p := &diskProvider{
+		buckets: map[string]*ent.Bucket{},
+		dir:     dir,
+	}
+
+	err := filepath.Walk(p.dir, p.walk)
+	if err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+func (p *diskProvider) Get(name string) (*ent.Bucket, error) {
 	b, ok := p.buckets[name]
 	if !ok {
-		return nil, ErrBucketNotFound
+		return nil, ent.ErrBucketNotFound
 	}
 	return b, nil
 }
 
-func (p *diskProvider) List() ([]*Bucket, error) {
-	bs := []*Bucket{}
+func (p *diskProvider) List() ([]*ent.Bucket, error) {
+	bs := []*ent.Bucket{}
 	for _, b := range p.buckets {
 		bs = append(bs, b)
 	}
@@ -47,7 +56,7 @@ func (p *diskProvider) loadBucket(name string) error {
 		return err
 	}
 
-	b := &Bucket{}
+	b := &ent.Bucket{}
 	err = json.NewDecoder(f).Decode(b)
 	if err != nil {
 		return err
@@ -67,40 +76,4 @@ func (p *diskProvider) walk(path string, f os.FileInfo, err error) error {
 	}
 
 	return p.loadBucket(path)
-}
-
-// NewDiskProvider returns a new disk backed Provider given a path to directory
-// storing bucket configuration files in the format of .entpolicy.
-func NewDiskProvider(dir string) (Provider, error) {
-	p := &diskProvider{
-		buckets: map[string]*Bucket{},
-		dir:     dir,
-	}
-
-	err := filepath.Walk(p.dir, p.walk)
-	if err != nil {
-		return nil, err
-	}
-
-	return p, nil
-}
-
-// A Bucket carries configuration for namespaces like ownership and
-// restrictions.
-type Bucket struct {
-	Name  string `json:"name"`
-	Owner Owner  `json:"owner"`
-}
-
-// NewBucket returns a new Bucket given a name and an Owner.
-func NewBucket(name string, owner Owner) *Bucket {
-	return &Bucket{
-		Name:  name,
-		Owner: owner,
-	}
-}
-
-// An Owner represents the identity of a person or group.
-type Owner struct {
-	Email mail.Address `json:"email"`
 }

@@ -16,21 +16,21 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-)
 
-// A FileSystem implements CRUD operations for a collection of named files
-// namespaced into buckets.
-type FileSystem interface {
-	Create(bucket *Bucket, key string, data io.Reader) (File, error)
-	Open(bucket *Bucket, key string) (File, error)
-	List(bucket *Bucket, prefix string, limit uint64, sort SortStrategy) (Files, error)
-}
+	"github.com/soundcloud/ent/lib"
+)
 
 type diskFS struct {
 	root string
 }
 
-func (fs *diskFS) Create(bucket *Bucket, key string, r io.Reader) (File, error) {
+func newDiskFS(root string) ent.FileSystem {
+	return &diskFS{
+		root: root,
+	}
+}
+
+func (fs *diskFS) Create(bucket *ent.Bucket, key string, r io.Reader) (ent.File, error) {
 	destination := filepath.Join(fs.root, bucket.Name, key)
 
 	err := os.MkdirAll(filepath.Dir(destination), 0755)
@@ -71,7 +71,7 @@ func (fs *diskFS) Create(bucket *Bucket, key string, r io.Reader) (File, error) 
 	return f, nil
 }
 
-func (fs *diskFS) Open(bucket *Bucket, key string) (File, error) {
+func (fs *diskFS) Open(bucket *ent.Bucket, key string) (ent.File, error) {
 	f, err := os.Open(filepath.Join(fs.root, bucket.Name, key))
 	if err != nil {
 		return nil, err
@@ -79,9 +79,9 @@ func (fs *diskFS) Open(bucket *Bucket, key string) (File, error) {
 	return newFile(f, key), nil
 }
 
-func (fs *diskFS) List(bucket *Bucket, prefix string, limit uint64, sortStrategy SortStrategy) (Files, error) {
+func (fs *diskFS) List(bucket *ent.Bucket, prefix string, limit uint64, sortStrategy ent.SortStrategy) (ent.Files, error) {
 	var (
-		files      = Files{}
+		files      = ent.Files{}
 		bucketDir  = filepath.Join(fs.root, bucket.Name)
 		prefixGlob = fmt.Sprintf("%s**", filepath.Join(bucketDir, prefix))
 	)
@@ -126,25 +126,6 @@ func (fs *diskFS) List(bucket *Bucket, prefix string, limit uint64, sortStrategy
 	return files, nil
 }
 
-// NewDiskFS returns a new disk backed FileSystem given a rooth path.
-func NewDiskFS(root string) FileSystem {
-	return &diskFS{
-		root: root,
-	}
-}
-
-// File represents a handle to an open file handle.
-type File interface {
-	Hash() ([]byte, error)
-	Key() string
-	LastModified() time.Time
-
-	io.Closer
-	io.Reader
-	io.Seeker
-	io.Writer
-}
-
 type file struct {
 	hash         hash.Hash
 	hashed       int64
@@ -152,6 +133,15 @@ type file struct {
 	lastModified time.Time
 
 	*os.File
+}
+
+func newFile(f *os.File, key string) *file {
+	return &file{
+		hash:   sha1.New(),
+		hashed: 0,
+		key:    key,
+		File:   f,
+	}
 }
 
 func (f *file) Key() string {
@@ -197,26 +187,4 @@ func (f *file) Write(p []byte) (int, error) {
 	f.hashed += int64(n)
 
 	return f.File.Write(p)
-}
-
-func newFile(f *os.File, key string) *file {
-	return &file{
-		hash:   sha1.New(),
-		hashed: 0,
-		key:    key,
-		File:   f,
-	}
-}
-
-// Files represents group of file
-type Files []File
-
-// Len return the size of the files
-func (fs Files) Len() int {
-	return len(fs)
-}
-
-// Swap swap files of index i and j
-func (fs Files) Swap(i, j int) {
-	fs[i], fs[j] = fs[j], fs[i]
 }
