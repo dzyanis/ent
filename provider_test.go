@@ -1,8 +1,3 @@
-// Copyright (c) 2014, SoundCloud Ltd.
-// Use of this source code is governed by the MIT
-// license that can be found in the LICENSE file.
-// Source code and contact info at http://github.com/soundcloud/ent
-
 package main
 
 import (
@@ -53,7 +48,7 @@ func TestDiskProviderInit(t *testing.T) {
 }
 
 func TestDiskProviderBucketNotFound(t *testing.T) {
-	p, err := newDiskProvider("./fixtures")
+	p, err := newDiskProvider("./fixture")
 	if err != nil {
 		t.Fatal(err)
 	}
