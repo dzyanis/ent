@@ -15,7 +15,7 @@ import (
 )
 
 func TestDiskFS(t *testing.T) {
-	tmp, err := ioutil.TempDir("", "ent-test")
+	tmp, err := ioutil.TempDir("", "ent-diskfs-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +66,24 @@ func TestDiskFS(t *testing.T) {
 
 	if got != expected {
 		t.Errorf("hash miss-match: %s != %s", got, expected)
+	}
+}
+
+func TestDiskFSFileNotFound(t *testing.T) {
+	tmp, err := ioutil.TempDir("", "ent-notfound-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+
+	var (
+		b  = ent.NewBucket("notfound", ent.Owner{})
+		fs = newDiskFS(tmp)
+	)
+
+	_, err = fs.Open(b, "non-existing.file")
+	if !ent.IsFileNotFound(err) {
+		t.Errorf("expected %s when opening missing file got %s", ent.ErrFileNotFound, err)
 	}
 }
 
