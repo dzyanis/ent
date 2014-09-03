@@ -69,6 +69,9 @@ func (fs *diskFS) Create(bucket *ent.Bucket, key string, r io.Reader) (ent.File,
 func (fs *diskFS) Open(bucket *ent.Bucket, key string) (ent.File, error) {
 	f, err := os.Open(filepath.Join(fs.root, bucket.Name, key))
 	if err != nil {
+		if os.IsNotExist(err) {
+			err = ent.ErrFileNotFound
+		}
 		return nil, err
 	}
 	return newFile(f, key), nil
