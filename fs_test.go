@@ -76,12 +76,27 @@ func TestDiskFSFileNotFound(t *testing.T) {
 	}
 	defer os.RemoveAll(tmp)
 
+	bucketDir, err := ioutil.TempDir(tmp, "bucket")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir, err := ioutil.TempDir(bucketDir, "dir")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	var (
-		b  = ent.NewBucket("notfound", ent.Owner{})
+		b  = ent.NewBucket(filepath.Base(bucketDir), ent.Owner{})
 		fs = newDiskFS(tmp)
 	)
 
 	_, err = fs.Open(b, "non-existing.file")
+	if !ent.IsFileNotFound(err) {
+		t.Errorf("expected %s when opening missing file got %s", ent.ErrFileNotFound, err)
+	}
+
+	_, err = fs.Open(b, filepath.Base(dir))
 	if !ent.IsFileNotFound(err) {
 		t.Errorf("expected %s when opening missing file got %s", ent.ErrFileNotFound, err)
 	}
@@ -165,9 +180,22 @@ func TestDiskFSList(t *testing.T) {
 	}
 
 	var (
-		b  = ent.NewBucket(filepath.Base(bucketDir), ent.Owner{})
-		fs = newDiskFS(tmp)
+		b           = ent.NewBucket(filepath.Base(bucketDir), ent.Owner{})
+		fs          = newDiskFS(tmp)
+		emptyBucket = ent.NewBucket("notCreatedDir", ent.Owner{})
 	)
+
+	all, err := fs.List(emptyBucket, "", 12, ent.NoOpStrategy())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(all) != 0 {
+		t.Errorf(
+			"wrong number of files listing empty bucket:  %d",
+			len(all),
+		)
+	}
 
 	for _, input := range listTestEntries {
 		all, err := fs.List(b, input.prefix, input.limit, ent.NoOpStrategy())
@@ -197,7 +225,7 @@ func TestDiskFSList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, err := fs.List(b, "", defaultLimit, strategy)
+	all, err = fs.List(b, "", defaultLimit, strategy)
 	if err != nil {
 		t.Fatal(err)
 	}

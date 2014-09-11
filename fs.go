@@ -25,7 +25,11 @@ func newDiskFS(root string) ent.FileSystem {
 	}
 }
 
-func (fs *diskFS) Create(bucket *ent.Bucket, key string, r io.Reader) (ent.File, error) {
+func (fs *diskFS) Create(
+	bucket *ent.Bucket,
+	key string,
+	r io.Reader,
+) (ent.File, error) {
 	destination := filepath.Join(fs.root, bucket.Name, key)
 
 	err := os.MkdirAll(filepath.Dir(destination), 0755)
@@ -67,24 +71,53 @@ func (fs *diskFS) Create(bucket *ent.Bucket, key string, r io.Reader) (ent.File,
 }
 
 func (fs *diskFS) Open(bucket *ent.Bucket, key string) (ent.File, error) {
-	f, err := os.Open(filepath.Join(fs.root, bucket.Name, key))
+	path := filepath.Join(fs.root, bucket.Name, key)
+
+	stat, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			err = ent.ErrFileNotFound
 		}
 		return nil, err
 	}
+
+	// If the requested key only matches a sub-directory and not a file we handle
+	// it as if no file was found.
+	if stat.IsDir() {
+		return nil, ent.ErrFileNotFound
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
 	return newFile(f, key), nil
 }
 
-func (fs *diskFS) List(bucket *ent.Bucket, prefix string, limit uint64, sortStrategy ent.SortStrategy) (ent.Files, error) {
+func (fs *diskFS) List(
+	bucket *ent.Bucket,
+	prefix string,
+	limit uint64,
+	sortStrategy ent.SortStrategy,
+) (ent.Files, error) {
 	var (
 		files      = ent.Files{}
 		bucketDir  = filepath.Join(fs.root, bucket.Name)
 		prefixGlob = filepath.Join(bucketDir, prefix)
 	)
 
-	err := filepath.Walk(bucketDir, listWalk(&files, prefixGlob, bucketDir))
+	// In case the directory does not exist yet for a bucket, because no files
+	// have been stored yet we treat it as if the bucket is empty.
+	_, err := os.Stat(bucketDir)
+	if os.IsNotExist(err) {
+		return files, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	err = filepath.Walk(bucketDir, listWalk(&files, prefixGlob, bucketDir))
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +194,11 @@ func (f *file) Write(p []byte) (int, error) {
 	return f.File.Write(p)
 }
 
-func listWalk(files *ent.Files, prefix string, bucketDir string) filepath.WalkFunc {
+func listWalk(
+	files *ent.Files,
+	prefix string,
+	bucketDir string,
+) filepath.WalkFunc {
 	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return fmt.Errorf("error walking tree: %s", err)

@@ -1,7 +1,6 @@
 package ent
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"time"
 )
@@ -47,7 +46,6 @@ type ResponseError struct {
 // the retrieval metadata of a File.
 type ResponseFile struct {
 	Key          string
-	SHA1         []byte
 	LastModified time.Time
 	Bucket       *Bucket
 }
@@ -57,7 +55,6 @@ type ResponseFile struct {
 func (r ResponseFile) MarshalJSON() ([]byte, error) {
 	return json.Marshal(responseFileWrapper{
 		Key:          r.Key,
-		SHA1:         hex.EncodeToString(r.SHA1),
 		LastModified: r.LastModified.Format(timeFormat),
 		Bucket:       r.Bucket,
 	})
@@ -72,13 +69,8 @@ func (r *ResponseFile) UnmarshalJSON(d []byte) error {
 	if err != nil {
 		return err
 	}
-	h, err := hex.DecodeString(w.SHA1)
-	if err != nil {
-		return err
-	}
 
 	r.Key = w.Key
-	r.SHA1 = h
 	r.LastModified, err = time.Parse(timeFormat, w.LastModified)
 	r.Bucket = w.Bucket
 	return err
@@ -86,7 +78,6 @@ func (r *ResponseFile) UnmarshalJSON(d []byte) error {
 
 type responseFileWrapper struct {
 	Key          string  `json:"key"`
-	SHA1         string  `json:"sha1"`
 	LastModified string  `json:"lastModified"`
 	Bucket       *Bucket `json:"bucket"`
 }

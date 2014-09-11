@@ -66,14 +66,6 @@ func TestHandleCreate(t *testing.T) {
 	if resp.File.Key != key {
 		t.Errorf("keys differ: %s != %s", resp.File.Key, key)
 	}
-
-	if !bytes.Equal(resp.File.SHA1, testHash.Sum(nil)) {
-		t.Errorf(
-			"checksums differ: %s != %s",
-			hex.EncodeToString(resp.File.SHA1),
-			hex.EncodeToString(testHash.Sum(nil)),
-		)
-	}
 }
 
 func TestHandleCreateInvalidBucket(t *testing.T) {
