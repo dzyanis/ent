@@ -7,25 +7,33 @@ LDFLAGS    := -ldflags \
 
 GOOS       := $(shell go env GOOS)
 GOARCH     := $(shell go env GOARCH)
-GOBUILD    := GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(LDFLAGS)
+GO         := GOOS=$(GOOS) GOARCH=$(GOARCH) go
 
-ARCHIVE    := ent-$(VERSION)-$(GOOS)-$(GOARCH).tar.gz
+BIN        := ent
+ARCHIVE    := $(BIN)-$(VERSION)-$(GOOS)-$(GOARCH).tar.gz
 DISTDIR    := dist/$(GOOS)_$(GOARCH)
 
-.PHONY: default release archive clean
 
-default: *.go
-	$(GOBUILD)
+build: $(BIN)
+
+test:
+	$(GO) test ./...
 
 release: REMOTE     ?= $(error "can't release, REMOTE not set")
 release: REMOTE_DIR ?= $(error "can't release, REMOTE_DIR not set")
-release: dist/$(ARCHIVE)
+release: test dist/$(ARCHIVE)
 	scp $< $(REMOTE):$(REMOTE_DIR)/
 
 archive: dist/$(ARCHIVE)
 
 clean:
-	git clean -f -x -d
+	rm -rf $(BIN) $(DISTDIR)
+
+
+.PHONY: build test release archive clean
+
+$(BIN): *.go Makefile
+	$(GO) build -o $@ $(LDFLAGS)
 
 dist/$(ARCHIVE): $(DISTDIR)/ent
 	tar -C $(DISTDIR) -czvf $@ .
