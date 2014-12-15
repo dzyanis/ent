@@ -173,6 +173,18 @@ func main() {
 		),
 	)
 
+	r.Add(
+		"OPTIONS",
+		"/{.*}",
+		report.JSON(
+			os.Stdout,
+			metrics(
+				"handleOptions",
+				handleOptions(),
+			),
+		),
+	)
+
 	log.Printf("listening on %s", *httpAddress)
 	log.Fatal(http.ListenAndServe(*httpAddress, http.Handler(r)))
 }
@@ -185,6 +197,8 @@ func handleCreate(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			key    = r.URL.Query().Get(":key")
 		)
 		defer r.Body.Close()
+
+		addCORSHeaders(w, r)
 
 		b, err := p.Get(bucket)
 		if err != nil {
@@ -205,7 +219,6 @@ func handleCreate(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			respondError(w, r, err)
 			return
 		}
-
 		respondJSON(w, http.StatusCreated, ent.ResponseCreated{
 			Duration: time.Since(start),
 			File: ent.ResponseFile{
@@ -223,6 +236,8 @@ func handleExists(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			bucket = r.URL.Query().Get(keyBucket)
 			key    = r.URL.Query().Get(keyBlob)
 		)
+
+		addCORSHeaders(w, r)
 
 		b, err := p.Get(bucket)
 		if err != nil {
@@ -251,6 +266,8 @@ func handleGet(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			bucket = r.URL.Query().Get(keyBucket)
 			key    = r.URL.Query().Get(keyBlob)
 		)
+
+		addCORSHeaders(w, r)
 
 		b, err := p.Get(bucket)
 		if err != nil {
@@ -281,6 +298,8 @@ func handleBucketList(p ent.Provider) http.HandlerFunc {
 			start = time.Now()
 		)
 
+		addCORSHeaders(w, r)
+
 		bs, err := p.List()
 		if err != nil {
 			respondError(w, r, err)
@@ -305,6 +324,8 @@ func handleFileList(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			prefix     = r.URL.Query().Get(paramPrefix)
 			sortValue  = r.URL.Query().Get(paramSort)
 		)
+
+		addCORSHeaders(w, r)
 
 		b, err := p.Get(bucket)
 		if err != nil {
@@ -348,6 +369,16 @@ func handleFileList(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			Files:    responseFiles,
 		})
 	}
+}
+
+func handleOptions() http.HandlerFunc {
+	return addCORSHeaders
+}
+
+func addCORSHeaders(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, Origin")
 }
 
 func metrics(op string, next http.Handler) http.Handler {
