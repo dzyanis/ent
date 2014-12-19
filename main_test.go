@@ -93,6 +93,67 @@ func TestHandleCreateInvalidBucket(t *testing.T) {
 	}
 }
 
+func TestHandleDelete(t *testing.T) {
+	var (
+		b    = ent.NewBucket("handle-delete", ent.Owner{})
+		fs   = newMockFileSystem()
+		r    = pat.New()
+		file = "./fixture/test.zip"
+		key  = filepath.Base(file)
+	)
+
+	r.Delete(routeFile, handleDelete(newMockProvider(b), fs))
+
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	raw, err := ioutil.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f := newMockFile(raw)
+	fs.files[fmt.Sprintf("%s/%s", b.Name, key)] = f
+
+	req, err := http.NewRequest(
+		"DELETE",
+		fmt.Sprintf("%s/%s/%s", ts.URL, b.Name, key),
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+
+	if want, got := http.StatusOK, res.StatusCode; want != got {
+		t.Errorf("want %d, got %d", want, got)
+	}
+
+	resp := ent.ResponseDeleted{}
+
+	err = json.NewDecoder(res.Body).Decode(&resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want, got := (ent.ResponseFile{
+		Bucket:       b,
+		Key:          key,
+		LastModified: f.LastModified(),
+	}), resp.File; !reflect.DeepEqual(want, got) {
+		t.Errorf("want %v, got %v", want, got)
+	}
+
+	if _, have := fs.Open(b, key); !ent.IsFileNotFound(have) {
+		t.Errorf("want %s, have %s", ent.ErrFileNotFound, have)
+	}
+}
+
 func TestHandleGet(t *testing.T) {
 	fs := newMockFileSystem()
 
@@ -321,6 +382,12 @@ func (fs *mockFileSystem) Create(bucket *ent.Bucket, key string, src io.Reader) 
 	fs.files[fmt.Sprintf("%s/%s", bucket.Name, key)] = f
 
 	return f, nil
+}
+
+func (fs *mockFileSystem) Delete(bucket *ent.Bucket, key string) error {
+	delete(fs.files, fmt.Sprintf("%s/%s", bucket.Name, key))
+
+	return nil
 }
 
 func (fs *mockFileSystem) Open(bucket *ent.Bucket, key string) (ent.File, error) {

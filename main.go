@@ -110,6 +110,18 @@ func main() {
 	// GET /metrics
 	r.Handle("/metrics", prometheus.Handler())
 
+	// DELETE /$bucket/$file
+	r.Add(
+		"DELETE",
+		routeFile,
+		report.JSON(
+			os.Stdout,
+			metrics(
+				"handleDelete",
+				handleDelete(p, fs),
+			),
+		),
+	)
 	// GET /$bucket/$file
 	r.Add(
 		"GET",
@@ -180,9 +192,9 @@ func main() {
 func handleCreate(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			start  = time.Now()
 			bucket = r.URL.Query().Get(":bucket")
 			key    = r.URL.Query().Get(":key")
+			start  = time.Now()
 		)
 		defer r.Body.Close()
 
@@ -211,6 +223,45 @@ func handleCreate(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			File: ent.ResponseFile{
 				Key:          key,
 				Bucket:       b,
+				LastModified: f.LastModified(),
+			},
+		})
+	}
+}
+
+func handleDelete(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var (
+			bucket = r.URL.Query().Get(keyBucket)
+			key    = r.URL.Query().Get(keyBlob)
+			start  = time.Now()
+		)
+		defer r.Body.Close()
+
+		b, err := p.Get(bucket)
+		if err != nil {
+			respondError(w, r, err)
+			return
+		}
+
+		f, err := fs.Open(b, key)
+		if err != nil {
+			respondError(w, r, err)
+			return
+		}
+		defer f.Close()
+
+		err = fs.Delete(b, key)
+		if err != nil {
+			respondError(w, r, err)
+			return
+		}
+
+		respondJSON(w, http.StatusOK, ent.ResponseCreated{
+			Duration: time.Since(start),
+			File: ent.ResponseFile{
+				Bucket:       b,
+				Key:          key,
 				LastModified: f.LastModified(),
 			},
 		})

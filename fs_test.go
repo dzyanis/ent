@@ -14,7 +14,7 @@ import (
 	"github.com/soundcloud/ent/lib"
 )
 
-func TestDiskFS(t *testing.T) {
+func TestDiskFSCreate(t *testing.T) {
 	tmp, err := ioutil.TempDir("", "ent-diskfs-test")
 	if err != nil {
 		t.Fatal(err)
@@ -66,6 +66,67 @@ func TestDiskFS(t *testing.T) {
 
 	if got != expected {
 		t.Errorf("hash miss-match: %s != %s", got, expected)
+	}
+}
+
+func TestDiskFSDelete(t *testing.T) {
+	tmp, err := ioutil.TempDir("", "diskfs-delete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+
+	var (
+		b    = ent.NewBucket("delete", ent.Owner{})
+		fs   = newDiskFS(tmp)
+		file = "./fixture/test.zip"
+		key  = filepath.Base(file)
+		dst  = filepath.Join(tmp, b.Name, key)
+	)
+
+	r, err := os.Open(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	f, err := fs.Create(b, key, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = fs.Delete(b, f.Key())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = os.Stat(dst)
+	if !os.IsNotExist(err) {
+		t.Errorf("want %v, got %v", os.ErrNotExist, err)
+	}
+}
+
+func TestDiskFSDeleteFileNotFound(t *testing.T) {
+	tmp, err := ioutil.TempDir("", "diskfs-delete-notfound")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+
+	var (
+		b  = ent.NewBucket("delete-notfound", ent.Owner{})
+		fs = newDiskFS(tmp)
+	)
+
+	err = fs.Delete(b, "non-exisiting-file")
+
+	if want, got := ent.ErrFileNotFound, err; want != got {
+		t.Errorf("want %v, got %v", want, got)
 	}
 }
 
