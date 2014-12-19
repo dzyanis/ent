@@ -9,6 +9,7 @@ import (
 // namespaced into buckets.
 type FileSystem interface {
 	Create(bucket *Bucket, key string, data io.Reader) (File, error)
+	Delete(bucket *Bucket, key string) error
 	Open(bucket *Bucket, key string) (File, error)
 	List(bucket *Bucket, prefix string, limit uint64, sort SortStrategy) (Files, error)
 }

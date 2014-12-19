@@ -16,6 +16,13 @@ type ResponseCreated struct {
 	File     ResponseFile  `json:"file"`
 }
 
+// ResponseDeleted is used as the intermediate type to craft a response for a
+// successfull file deletion
+type ResponseDeleted struct {
+	Duration time.Duration `json:"duration"`
+	File     ResponseFile  `json:"file"`
+}
+
 // ResponseBucketList is used as the intermediate type to craft a response for
 // the retrieval of all buckets.
 type ResponseBucketList struct {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/sha1"
-	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -30,9 +29,9 @@ func (fs *diskFS) Create(
 	key string,
 	r io.Reader,
 ) (ent.File, error) {
-	destination := filepath.Join(fs.root, bucket.Name, key)
+	dst := pathForFile(fs, bucket, key)
 
-	err := os.MkdirAll(filepath.Dir(destination), 0755)
+	err := os.MkdirAll(filepath.Dir(dst), 0755)
 	if err != nil {
 		return nil, err
 	}
@@ -47,17 +46,17 @@ func (fs *diskFS) Create(
 
 	_, err = io.Copy(f, r)
 	if err != nil {
-		return nil, errors.New("storing failed")
+		return nil, fmt.Errorf("storing failed: %s", err)
 	}
 
-	err = os.Rename(tmp.Name(), destination)
+	err = os.Rename(tmp.Name(), dst)
 	if err != nil {
-		return nil, errors.New("rename failed")
+		return nil, fmt.Errorf("rename failed: %s", err)
 	}
 
-	f.File, err = os.Open(destination)
+	f.File, err = os.Open(dst)
 	if err != nil {
-		return nil, errors.New("open failed")
+		return nil, fmt.Errorf("open failed: %s", err)
 	}
 
 	stat, err := f.File.Stat()
@@ -70,8 +69,27 @@ func (fs *diskFS) Create(
 	return f, nil
 }
 
+func (fs *diskFS) Delete(bucket *ent.Bucket, key string) error {
+	p := pathForFile(fs, bucket, key)
+
+	_, err := os.Stat(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			err = ent.ErrFileNotFound
+		}
+		return err
+	}
+
+	err = os.Remove(p)
+	if err != nil {
+		return fmt.Errorf("removal failed: %s", err)
+	}
+
+	return nil
+}
+
 func (fs *diskFS) Open(bucket *ent.Bucket, key string) (ent.File, error) {
-	path := filepath.Join(fs.root, bucket.Name, key)
+	path := pathForFile(fs, bucket, key)
 
 	stat, err := os.Stat(path)
 	if err != nil {
@@ -224,4 +242,8 @@ func listWalk(
 
 		return nil
 	}
+}
+
+func pathForFile(fs *diskFS, bucket *ent.Bucket, key string) string {
+	return filepath.Join(fs.root, bucket.Name, key)
 }
