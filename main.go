@@ -118,7 +118,9 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleGet",
-				handleGet(p, fs),
+				addCORSHeaders(
+					handleGet(p, fs),
+				),
 			),
 		),
 	)
@@ -130,7 +132,9 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleExists",
-				handleExists(p, fs),
+				addCORSHeaders(
+					handleExists(p, fs),
+				),
 			),
 		),
 	)
@@ -142,7 +146,9 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleCreate",
-				handleCreate(p, fs),
+				addCORSHeaders(
+					handleCreate(p, fs),
+				),
 			),
 		),
 	)
@@ -155,7 +161,9 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleFileList",
-				handleFileList(p, fs),
+				addCORSHeaders(
+					handleFileList(p, fs),
+				),
 			),
 		),
 	)
@@ -168,7 +176,9 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleBucketList",
-				handleBucketList(p),
+				addCORSHeaders(
+					handleBucketList(p),
+				),
 			),
 		),
 	)
@@ -180,7 +190,9 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleOptions",
-				handleOptions(),
+				addCORSHeaders(
+					handleOptions(),
+				),
 			),
 		),
 	)
@@ -197,8 +209,6 @@ func handleCreate(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			key    = r.URL.Query().Get(":key")
 		)
 		defer r.Body.Close()
-
-		addCORSHeaders(w, r)
 
 		b, err := p.Get(bucket)
 		if err != nil {
@@ -237,8 +247,6 @@ func handleExists(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			key    = r.URL.Query().Get(keyBlob)
 		)
 
-		addCORSHeaders(w, r)
-
 		b, err := p.Get(bucket)
 		if err != nil {
 			respondError(w, r, err)
@@ -266,8 +274,6 @@ func handleGet(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			bucket = r.URL.Query().Get(keyBucket)
 			key    = r.URL.Query().Get(keyBlob)
 		)
-
-		addCORSHeaders(w, r)
 
 		b, err := p.Get(bucket)
 		if err != nil {
@@ -298,8 +304,6 @@ func handleBucketList(p ent.Provider) http.HandlerFunc {
 			start = time.Now()
 		)
 
-		addCORSHeaders(w, r)
-
 		bs, err := p.List()
 		if err != nil {
 			respondError(w, r, err)
@@ -324,8 +328,6 @@ func handleFileList(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			prefix     = r.URL.Query().Get(paramPrefix)
 			sortValue  = r.URL.Query().Get(paramSort)
 		)
-
-		addCORSHeaders(w, r)
 
 		b, err := p.Get(bucket)
 		if err != nil {
@@ -371,14 +373,20 @@ func handleFileList(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	}
 }
 
-func handleOptions() http.HandlerFunc {
-	return addCORSHeaders
+func handleOptions() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 }
 
-func addCORSHeaders(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE")
-	w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, Origin")
+func addCORSHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, Origin")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func metrics(op string, next http.Handler) http.Handler {
