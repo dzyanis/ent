@@ -304,6 +304,27 @@ func TestHandleInavalidParams(t *testing.T) {
 
 }
 
+func TestAddCORSHeaders(t *testing.T) {
+	ts := httptest.NewServer(addCORSHeaders(http.HandlerFunc(http.NotFound)))
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+
+	for key, want := range map[string]string{
+		"Access-Control-Allow-Headers": "Accept, Authorization, Content-Type, Origin",
+		"Access-Control-Allow-Methods": "GET, POST, DELETE",
+		"Access-Control-Allow-Origin":  "*",
+	} {
+		if have := res.Header.Get(key); have != want {
+			t.Errorf("want %s, have %s", want, have)
+		}
+	}
+}
+
 type mockFile struct {
 	buffer *bytes.Buffer
 	data   []byte

@@ -130,7 +130,9 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleGet",
-				handleGet(p, fs),
+				addCORSHeaders(
+					handleGet(p, fs),
+				),
 			),
 		),
 	)
@@ -142,7 +144,9 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleExists",
-				handleExists(p, fs),
+				addCORSHeaders(
+					handleExists(p, fs),
+				),
 			),
 		),
 	)
@@ -154,7 +158,9 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleCreate",
-				handleCreate(p, fs),
+				addCORSHeaders(
+					handleCreate(p, fs),
+				),
 			),
 		),
 	)
@@ -167,7 +173,9 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleFileList",
-				handleFileList(p, fs),
+				addCORSHeaders(
+					handleFileList(p, fs),
+				),
 			),
 		),
 	)
@@ -180,7 +188,23 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleBucketList",
-				handleBucketList(p),
+				addCORSHeaders(
+					handleBucketList(p),
+				),
+			),
+		),
+	)
+
+	r.Add(
+		"OPTIONS",
+		"/{.*}",
+		report.JSON(
+			os.Stdout,
+			metrics(
+				"handleOptions",
+				addCORSHeaders(
+					handleOptions(),
+				),
 			),
 		),
 	)
@@ -217,7 +241,6 @@ func handleCreate(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			respondError(w, r, err)
 			return
 		}
-
 		respondJSON(w, http.StatusCreated, ent.ResponseCreated{
 			Duration: time.Since(start),
 			File: ent.ResponseFile{
@@ -399,6 +422,22 @@ func handleFileList(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			Files:    responseFiles,
 		})
 	}
+}
+
+func handleOptions() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func addCORSHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, Origin")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func metrics(op string, next http.Handler) http.Handler {
