@@ -6,6 +6,21 @@ import (
 )
 
 const (
+	HeaderETag         = "ETag"
+	HeaderLastModified = "Last-Modified"
+
+	KeyBucket = ":bucket"
+	KeyBlob   = ":key"
+
+	OrderKey          = "key"
+	OrderLastModified = "lastModified"
+	OrderAscending    = "+"
+	OrderDescending   = "-"
+
+	ParamLimit  = "limit"
+	ParamPrefix = "prefix"
+	ParamSort   = "sort"
+
 	timeFormat = time.RFC3339Nano
 )
 
