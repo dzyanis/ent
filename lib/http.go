@@ -24,6 +24,9 @@ const (
 	ParamPrefix = "prefix"
 	ParamSort   = "sort"
 
+	RouteBucket = `/{bucket}`
+	RouteFile   = `/{bucket}/{key:[a-zA-Z0-9\-_\.~\+\/]+}`
+
 	timeFormat = time.RFC3339Nano
 )
 

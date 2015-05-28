@@ -30,7 +30,7 @@ func TestHandleCreate(t *testing.T) {
 	)
 
 	r := pat.New()
-	r.Post(routeFile, handleCreate(ent.NewMemoryProvider(b), fs))
+	r.Post(ent.RouteFile, handleCreate(ent.NewMemoryProvider(b), fs))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
@@ -74,7 +74,7 @@ func TestHandleCreateInvalidBucket(t *testing.T) {
 	fs := ent.NewMemoryFS()
 
 	r := pat.New()
-	r.Post(routeFile, handleCreate(ent.NewMemoryProvider(), fs))
+	r.Post(ent.RouteFile, handleCreate(ent.NewMemoryProvider(), fs))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
@@ -105,7 +105,7 @@ func TestHandleDelete(t *testing.T) {
 		key = filepath.Base(fixtureZip)
 	)
 
-	r.Delete(routeFile, handleDelete(ent.NewMemoryProvider(b), fs))
+	r.Delete(ent.RouteFile, handleDelete(ent.NewMemoryProvider(b), fs))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
@@ -167,7 +167,7 @@ func TestHandleGet(t *testing.T) {
 		r  = pat.New()
 	)
 
-	r.Get(routeFile, handleGet(ent.NewMemoryProvider(b), fs))
+	r.Get(ent.RouteFile, handleGet(ent.NewMemoryProvider(b), fs))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
@@ -260,7 +260,7 @@ func TestHandleFileList(t *testing.T) {
 		r    = pat.New()
 	)
 
-	r.Get(routeBucket, handleFileList(ent.NewMemoryProvider(bs...), fs))
+	r.Get(ent.RouteBucket, handleFileList(ent.NewMemoryProvider(bs...), fs))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
@@ -319,7 +319,7 @@ func TestHandleFileListInvalidParams(t *testing.T) {
 		r    = pat.New()
 	)
 
-	r.Get(routeBucket, handleFileList(ent.NewMemoryProvider(bs...), fs))
+	r.Get(ent.RouteBucket, handleFileList(ent.NewMemoryProvider(bs...), fs))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()

@@ -18,11 +18,6 @@ import (
 	"github.com/streadway/handy/report"
 )
 
-const (
-	routeBucket = `/{bucket}`
-	routeFile   = `/{bucket}/{key:[a-zA-Z0-9\-_\.~\+\/]+}`
-)
-
 // Buildtime variables
 var (
 	Program = "ent"
@@ -95,7 +90,7 @@ func main() {
 	// DELETE /$bucket/$file
 	r.Add(
 		"DELETE",
-		routeFile,
+		ent.RouteFile,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -107,7 +102,7 @@ func main() {
 	// GET /$bucket/$file
 	r.Add(
 		"GET",
-		routeFile,
+		ent.RouteFile,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -121,7 +116,7 @@ func main() {
 	// HEAD /$bucket/$file
 	r.Add(
 		"HEAD",
-		routeFile,
+		ent.RouteFile,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -135,7 +130,7 @@ func main() {
 	// POST /$bucket/$file
 	r.Add(
 		"POST",
-		routeFile,
+		ent.RouteFile,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -150,7 +145,7 @@ func main() {
 	// GET /$bucket
 	r.Add(
 		"GET",
-		routeBucket,
+		ent.RouteBucket,
 		report.JSON(
 			os.Stdout,
 			metrics(
