@@ -21,7 +21,7 @@ test:
 
 release: REMOTE     ?= $(error "can't release, REMOTE not set")
 release: REMOTE_DIR ?= $(error "can't release, REMOTE_DIR not set")
-release: test dist/$(ARCHIVE)
+release: dist/$(ARCHIVE)
 	scp $< $(REMOTE):$(REMOTE_DIR)/
 
 archive: dist/$(ARCHIVE)
@@ -35,8 +35,5 @@ clean:
 $(BIN): *.go Makefile
 	$(GO) build -o $@ $(LDFLAGS)
 
-dist/$(ARCHIVE): $(DISTDIR)/ent
+dist/$(ARCHIVE): $(BIN)
 	tar -C $(DISTDIR) -czvf $@ .
-
-$(DISTDIR)/ent: *.go
-	$(GOBUILD) -o $@

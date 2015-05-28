@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// Constants used in HTTP request/responses.
 const (
 	DefaultLimit uint64 = math.MaxUint64
 
