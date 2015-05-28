@@ -7,6 +7,7 @@ import (
 // Error codes returned by Ent for missing entities.
 var (
 	ErrBucketNotFound = errors.New("bucket not found")
+	ErrEmptyBucket    = errors.New("bucket not provided")
 	ErrFileNotFound   = errors.New("file not found")
 	ErrInvalidParam   = errors.New("invalid param")
 )

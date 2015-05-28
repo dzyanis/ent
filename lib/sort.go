@@ -1,11 +1,13 @@
 package ent
 
 import (
+	"fmt"
 	"sort"
 )
 
 // SortStrategy implements sorting of Files
 type SortStrategy interface {
+	EncodeParam() string
 	Sort(file Files)
 }
 
@@ -20,6 +22,12 @@ func NoOpStrategy() SortStrategy {
 // Sort is a convenience method.
 func (s noOpStrategy) Sort(files Files) {}
 
+// EncodeParam returns the cannonical string used for the strategy when passed
+// as a param.
+func (s noOpStrategy) EncodeParam() string {
+	return ""
+}
+
 // byKey orders Files by its key name.
 type byKey struct {
 	baseSortStrategy
@@ -32,6 +40,18 @@ func ByKeyStrategy(ascending bool) SortStrategy {
 			isAscending: ascending,
 		},
 	}
+}
+
+// EncodeParam returns the cannonical string used for the strategy when passed
+// as a param.
+func (s byKey) EncodeParam() string {
+	order := OrderDescending
+
+	if s.isAscending {
+		order = OrderAscending
+	}
+
+	return fmt.Sprintf("%s%s", order, OrderKey)
 }
 
 // Less reports whether the element with index i should sort before the element
@@ -67,6 +87,18 @@ func ByLastModifiedStrategy(ascending bool) SortStrategy {
 			isAscending: ascending,
 		},
 	}
+}
+
+// EncodeParam returns the cannonical string used for the strategy when passed
+// as a param.
+func (s byLastModified) EncodeParam() string {
+	order := OrderDescending
+
+	if s.isAscending {
+		order = OrderAscending
+	}
+
+	return fmt.Sprintf("%s%s", order, OrderLastModified)
 }
 
 // Less reports whether the element with index i should sort before the element

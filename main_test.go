@@ -1,40 +1,42 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"hash"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/mail"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/gorilla/pat"
 	"github.com/soundcloud/ent/lib"
 )
 
+const fixtureZip = "./fixture/test.zip"
+
 func TestHandleCreate(t *testing.T) {
-	fs := newMockFileSystem()
-	b := ent.NewBucket("ent", ent.Owner{})
+	var (
+		fs = ent.NewMemoryFS()
+		b  = ent.NewBucket("ent", ent.Owner{})
+	)
 
 	r := pat.New()
-	r.Post(routeFile, handleCreate(newMockProvider(b), fs))
+	r.Post(routeFile, handleCreate(ent.NewMemoryProvider(b), fs))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
 	testHash := sha1.New()
-	testFile, err := os.Open("./fixture/test.zip")
+	testFile, err := os.Open(fixtureZip)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,9 +71,11 @@ func TestHandleCreate(t *testing.T) {
 }
 
 func TestHandleCreateInvalidBucket(t *testing.T) {
-	fs := newMockFileSystem()
+	fs := ent.NewMemoryFS()
+
 	r := pat.New()
-	r.Post(routeFile, handleCreate(newMockProvider(), fs))
+	r.Post(routeFile, handleCreate(ent.NewMemoryProvider(), fs))
+
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -95,25 +99,26 @@ func TestHandleCreateInvalidBucket(t *testing.T) {
 
 func TestHandleDelete(t *testing.T) {
 	var (
-		b    = ent.NewBucket("handle-delete", ent.Owner{})
-		fs   = newMockFileSystem()
-		r    = pat.New()
-		file = "./fixture/test.zip"
-		key  = filepath.Base(file)
+		b   = ent.NewBucket("handle-delete", ent.Owner{})
+		fs  = ent.NewMemoryFS()
+		r   = pat.New()
+		key = filepath.Base(fixtureZip)
 	)
 
-	r.Delete(routeFile, handleDelete(newMockProvider(b), fs))
+	r.Delete(routeFile, handleDelete(ent.NewMemoryProvider(b), fs))
 
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
-	raw, err := ioutil.ReadFile(file)
+	f, err := os.Open(fixtureZip)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	f := newMockFile(raw)
-	fs.files[fmt.Sprintf("%s/%s", b.Name, key)] = f
+	file, err := fs.Create(b, key, f)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	req, err := http.NewRequest(
 		"DELETE",
@@ -130,8 +135,8 @@ func TestHandleDelete(t *testing.T) {
 	}
 	defer res.Body.Close()
 
-	if want, got := http.StatusOK, res.StatusCode; want != got {
-		t.Errorf("want %d, got %d", want, got)
+	if have, want := res.StatusCode, http.StatusOK; have != want {
+		t.Errorf("have %d, want %d", have, want)
 	}
 
 	resp := ent.ResponseDeleted{}
@@ -141,74 +146,83 @@ func TestHandleDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if want, got := (ent.ResponseFile{
+	if have, want := resp.File, (ent.ResponseFile{
 		Bucket:       b,
 		Key:          key,
-		LastModified: f.LastModified(),
-	}), resp.File; !reflect.DeepEqual(want, got) {
-		t.Errorf("want %v, got %v", want, got)
+		LastModified: file.LastModified(),
+	}); !reflect.DeepEqual(have, want) {
+		t.Errorf("want %v, got %v", have, want)
 	}
 
 	if _, have := fs.Open(b, key); !ent.IsFileNotFound(have) {
-		t.Errorf("want %s, have %s", ent.ErrFileNotFound, have)
+		t.Errorf("have %s, want %s", have, ent.ErrFileNotFound)
 	}
 }
 
 func TestHandleGet(t *testing.T) {
-	fs := newMockFileSystem()
+	var (
+		fs = ent.NewMemoryFS()
+		b  = ent.NewBucket("handle-get", ent.Owner{})
+		k  = "foo.zip"
+		r  = pat.New()
+	)
 
-	b := ent.NewBucket("ent", ent.Owner{})
+	r.Get(routeFile, handleGet(ent.NewMemoryProvider(b), fs))
 
-	r := pat.New()
-	r.Get(routeFile, handleGet(newMockProvider(b), fs))
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
-	testHash := sha1.New()
-	raw, err := ioutil.ReadFile("./fixture/test.zip")
+	f, err := os.Open(fixtureZip)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = testHash.Write(raw)
+	file, err := fs.Create(b, k, f)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	f := newMockFile(raw)
-	fs.files["ent/foo.zip"] = f
-
-	ep := fmt.Sprintf("%s/%s/%s", ts.URL, b.Name, "foo.zip")
+	ep := fmt.Sprintf("%s/%s/%s", ts.URL, b.Name, k)
 	res, err := http.Get(ep)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("HTTP %d", res.StatusCode)
+	if have, want := res.StatusCode, http.StatusOK; have != want {
+		t.Errorf("have %d, want %d", have, want)
 	}
 
-	h := sha1.New()
-	_, err = io.Copy(h, res.Body)
+	hash := sha1.New()
+
+	_, err = io.Copy(hash, res.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	expected := hex.EncodeToString(testHash.Sum(nil))
-	got := hex.EncodeToString(h.Sum(nil))
+	test, err := file.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	if got != expected {
-		t.Errorf("checksum missmatch %#v != %#v", got, expected)
+	var (
+		have = hex.EncodeToString(hash.Sum(nil))
+		want = hex.EncodeToString(test)
+	)
+
+	if have != want {
+		t.Errorf("have %v, want %v", have, want)
 	}
 }
 
 func TestHandleBucketList(t *testing.T) {
-	names := []string{"peer", "nxt", "master"}
-	bs := createBuckets(names, t)
+	var (
+		bs = createBuckets([]string{"peer", "nxt", "master"})
+		r  = pat.New()
+	)
 
-	r := pat.New()
-	r.Get("/", handleBucketList(newMockProvider(bs...)))
+	r.Get("/", handleBucketList(ent.NewMemoryProvider(bs...)))
+
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -238,70 +252,112 @@ func TestHandleBucketList(t *testing.T) {
 }
 
 func TestHandleFileList(t *testing.T) {
-	name := "master"
-	bs := createBuckets([]string{name}, t)
-	r := pat.New()
-	r.Get(routeBucket, handleFileList(newMockProvider(bs...), newMockFileSystem()))
+	var (
+		name = "master"
+		bs   = createBuckets([]string{name})
+		fs   = ent.NewMemoryFS()
+		p    = "list/files"
+		r    = pat.New()
+	)
+
+	r.Get(routeBucket, handleFileList(ent.NewMemoryProvider(bs...), fs))
+
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
-	getFiles(ts.URL+"/"+name+"?limit=1&sort=%2BlastModified", t, 0)
-	getFiles(ts.URL+"/"+name+"?prefix=list%2Ffiles&limit=10&sort=%2BlastModified", t, 10)
-	getFiles(ts.URL+"/"+name+"?prefix=list%2Ffiles", t, 10)
-	listedFiles := getFiles(ts.URL+"/master?prefix=list%2Ffiles&limit=4&sort=-key", t, 4)
-
-	for i, file := range listedFiles {
-		expected := fmt.Sprintf("list/filesname%d", i)
-		if file.Key != expected {
-			t.Errorf("%q != %q", file.Key, expected)
-		}
-	}
-
-	listedFiles = getFiles(ts.URL+"/master?prefix=list%2Ffiles&limit=4&sort=-key", t, 4)
-	for i, file := range listedFiles {
-		expected := fmt.Sprintf("list/filesname%d", i)
-		if file.Key != expected {
-			t.Fatalf("%q != %q", file.Key, expected)
-		}
-	}
-}
-
-func TestHandleInavalidParams(t *testing.T) {
-	bs := createBuckets([]string{"master"}, t)
-	r := pat.New()
-	r.Get(routeBucket, handleFileList(newMockProvider(bs...), newMockFileSystem()))
-	ts := httptest.NewServer(r)
-	defer ts.Close()
-
-	invalidRequests := []string{
-		"/master?prefix=listfiles&limit=4&sort=key",
-		"/master?prefix=listfiles&limit=4&sort=-key1",
-		"/master?prefix=listfiles&limit=12&sort=-1k2ey",
-		"/master?sort=%2BlastModifieddd",
-		"/master?limit=-1",
-		"/master?limit=asd",
-	}
-	for _, request := range invalidRequests {
-		res, err := http.Get(ts.URL + request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if res.StatusCode != http.StatusBadRequest {
-			t.Errorf("Request %s, response code %d != expected code %d", request, res.StatusCode, http.StatusBadRequest)
-		}
-		res.Body.Close()
-	}
-
-	res, err := http.Get(ts.URL + "/invalid")
+	f, err := os.Open(fixtureZip)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if res.StatusCode != http.StatusNotFound {
-		t.Errorf("Passing invalid bucket, response code %d != expected code %d", res.StatusCode, http.StatusNotFound)
+	for i := 0; i < 10; i++ {
+		_, err := fs.Create(bs[0], fmt.Sprintf("%s/%d", p, i), f)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	res.Body.Close()
 
+	inputs := []struct {
+		count int
+		vs    url.Values
+	}{
+		{
+			count: 1,
+			vs:    url.Values{"limit": []string{"1"}, "sort": []string{"+lastModified"}},
+		},
+		{
+			count: 10,
+			vs:    url.Values{"prefix": []string{p}},
+		},
+		{
+			count: 4,
+			vs:    url.Values{"limit": []string{"4"}, "prefix": []string{p}, "sort": []string{"-key"}},
+		},
+	}
+
+	for _, input := range inputs {
+		filesURL := fmt.Sprintf("%s/%s?%s", ts.URL, name, input.vs.Encode())
+
+		files, err := getFiles(filesURL)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if have, want := len(files), input.count; have != want {
+			t.Logf("%#v", files)
+			t.Errorf("have %d, want %d", have, want)
+		}
+	}
+}
+
+func TestHandleFileListInvalidParams(t *testing.T) {
+	var (
+		name = "master"
+		bs   = createBuckets([]string{name})
+		fs   = ent.NewMemoryFS()
+		p    = "invalid/files"
+		r    = pat.New()
+	)
+
+	r.Get(routeBucket, handleFileList(ent.NewMemoryProvider(bs...), fs))
+
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	f, err := os.Open(fixtureZip)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 10; i++ {
+		_, err := fs.Create(bs[0], fmt.Sprintf("%s/%d", p, i), f)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	inputs := []url.Values{
+		url.Values{"limit": []string{"-1"}},
+		url.Values{"limit": []string{"asd"}},
+		url.Values{"limit": []string{"4"}, "prefix": []string{p}, "sort": []string{"key"}},
+		url.Values{"limit": []string{"4"}, "prefix": []string{p}, "sort": []string{"-key1"}},
+		url.Values{"limit": []string{"12"}, "prefix": []string{p}, "sort": []string{"-1k2ey"}},
+		url.Values{"sort": []string{"+LastModified"}},
+	}
+
+	for _, input := range inputs {
+		filesURL := fmt.Sprintf("%s/%s?%s", ts.URL, name, input.Encode())
+
+		res, err := http.Get(filesURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+
+		if have, want := res.StatusCode, http.StatusBadRequest; have != want {
+			t.Errorf("have %d, want %d", have, want)
+		}
+	}
 }
 
 func TestAddCORSHeaders(t *testing.T) {
@@ -325,176 +381,29 @@ func TestAddCORSHeaders(t *testing.T) {
 	}
 }
 
-type mockFile struct {
-	buffer *bytes.Buffer
-	data   []byte
-	hash   hash.Hash
-	reader *bytes.Reader
-	writer *bufio.Writer
-	time   time.Time
-}
-
-func newMockFile(d []byte) *mockFile {
-	if d == nil {
-		d = []byte{}
-	}
-
-	f := &mockFile{
-		data: d,
-		hash: sha1.New(),
-	}
-	f.buffer = bytes.NewBuffer(f.data)
-	f.reader = bytes.NewReader(f.data)
-	f.writer = bufio.NewWriter(f.buffer)
-	f.time = time.Now()
-	return f
-}
-
-func (f *mockFile) Close() error {
-	return nil
-}
-
-func (f *mockFile) Key() string {
-	return ""
-}
-
-func (f *mockFile) Hash() ([]byte, error) {
-	return f.hash.Sum(nil), nil
-}
-
-func (f *mockFile) Read(p []byte) (int, error) {
-	return f.reader.Read(p)
-}
-
-func (f *mockFile) Seek(offset int64, whence int) (int64, error) {
-	return f.reader.Seek(offset, whence)
-}
-
-func (f *mockFile) Write(p []byte) (int, error) {
-	n, err := f.hash.Write(p)
+func getFiles(url string) ([]ent.ResponseFile, error) {
+	res, err := http.Get(url)
 	if err != nil {
-		return n, err
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		body, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("unexpected status: %d\n%s", res.StatusCode, string(body))
 	}
 
-	return f.writer.Write(p)
-}
+	resp := ent.ResponseFileList{}
 
-func (f *mockFile) LastModified() time.Time {
-	return f.time
-}
-
-type mockFileSystem struct {
-	files map[string]ent.File
-}
-
-func newMockFileSystem() *mockFileSystem {
-	return &mockFileSystem{
-		files: map[string]ent.File{},
-	}
-}
-
-func (fs *mockFileSystem) Create(bucket *ent.Bucket, key string, src io.Reader) (ent.File, error) {
-	f := newMockFile(nil)
-	_, err := io.Copy(f, src)
+	err = json.NewDecoder(res.Body).Decode(&resp)
 	if err != nil {
 		return nil, err
 	}
 
-	fs.files[fmt.Sprintf("%s/%s", bucket.Name, key)] = f
-
-	return f, nil
-}
-
-func (fs *mockFileSystem) Delete(bucket *ent.Bucket, key string) error {
-	delete(fs.files, fmt.Sprintf("%s/%s", bucket.Name, key))
-
-	return nil
-}
-
-func (fs *mockFileSystem) Open(bucket *ent.Bucket, key string) (ent.File, error) {
-	f, ok := fs.files[filepath.Join(bucket.Name, key)]
-	if !ok {
-		return nil, ent.ErrFileNotFound
-	}
-	return f, nil
-}
-
-func (fs *mockFileSystem) List(bucket *ent.Bucket, prefix string, limit uint64, sort ent.SortStrategy) (ent.Files, error) {
-	if prefix == "list/files" {
-		f, _ := os.Open("fixture/test.zip")
-		files := []ent.File{}
-		for i := 0; i < 10; i++ {
-			files = append(files, newFile(f, prefix+""+fmt.Sprintf("name%d", i)))
-		}
-		if uint64(len(files)) > limit {
-			return files[:limit], nil
-		}
-		return files, nil
-	}
-	return []ent.File{}, nil
-}
-
-type mockProvider struct {
-	buckets map[string]*ent.Bucket
-}
-
-func newMockProvider(buckets ...*ent.Bucket) ent.Provider {
-	p := &mockProvider{
-		buckets: map[string]*ent.Bucket{},
-	}
-
-	for _, b := range buckets {
-		p.buckets[b.Name] = b
-	}
-
-	return p
-}
-
-func (p *mockProvider) Get(name string) (*ent.Bucket, error) {
-	b, ok := p.buckets[name]
-	if !ok {
-		return nil, ent.ErrBucketNotFound
-	}
-	return b, nil
-}
-
-func (p *mockProvider) Init() error {
-	return nil
-}
-
-func (p *mockProvider) List() ([]*ent.Bucket, error) {
-	bs := []*ent.Bucket{}
-	for _, b := range p.buckets {
-		bs = append(bs, b)
-	}
-	return bs, nil
-}
-
-func getFiles(url string, t *testing.T, expectedCount int) []ent.ResponseFile {
-	res, err := http.Get(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
-
-	response := ent.ResponseFileList{}
-	err = json.NewDecoder(res.Body).Decode(&response)
-	if err != nil {
-		t.Fatal(err)
-	}
-	listedFiles := response.Files
-
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("HTTP %d", res.StatusCode)
-	}
-
-	if len(listedFiles) != expectedCount {
-		t.Errorf("not write count of files returned: %d != %d for request %s", len(listedFiles), expectedCount, url)
-	}
-	if response.Count != expectedCount {
-		t.Errorf("not metainfo for count of files returned: %d != %d for request %s", response.Count, expectedCount, url)
-	}
-	return listedFiles
+	return resp.Files, nil
 }
 
 func toMap(bucketsList []*ent.Bucket) map[ent.Bucket]int {
@@ -505,15 +414,17 @@ func toMap(bucketsList []*ent.Bucket) map[ent.Bucket]int {
 	return bucketMap
 }
 
-func createBuckets(names []string, t *testing.T) []*ent.Bucket {
+func createBuckets(names []string) []*ent.Bucket {
 	bs := []*ent.Bucket{}
+
 	for _, name := range names {
 		addr, err := mail.ParseAddress(fmt.Sprintf("%s <%s@ent.io>", name, name))
 		if err != nil {
-			t.Fatal(err)
+			panic(err)
 		}
-		b := ent.NewBucket(name, ent.Owner{Email: *addr})
-		bs = append(bs, b)
+
+		bs = append(bs, ent.NewBucket(name, ent.Owner{Email: *addr}))
 	}
+
 	return bs
 }

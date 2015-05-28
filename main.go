@@ -6,7 +6,6 @@ import (
 	"flag"
 	"io"
 	logpkg "log"
-	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -22,8 +21,6 @@ import (
 const (
 	routeBucket = `/{bucket}`
 	routeFile   = `/{bucket}/{key:[a-zA-Z0-9\-_\.~\+\/]+}`
-
-	defaultLimit uint64 = math.MaxUint64
 )
 
 // Buildtime variables
@@ -357,7 +354,7 @@ func handleFileList(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
 			start      = time.Now()
-			limit      = defaultLimit
+			limit      = ent.DefaultLimit
 			bucket     = r.URL.Query().Get(ent.KeyBucket)
 			limitValue = r.URL.Query().Get(ent.ParamLimit)
 			prefix     = r.URL.Query().Get(ent.ParamPrefix)

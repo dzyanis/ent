@@ -2,10 +2,13 @@ package ent
 
 import (
 	"encoding/json"
+	"math"
 	"time"
 )
 
 const (
+	DefaultLimit uint64 = math.MaxUint64
+
 	HeaderETag         = "ETag"
 	HeaderLastModified = "Last-Modified"
 
