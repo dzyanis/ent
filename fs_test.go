@@ -286,7 +286,7 @@ func TestDiskFSList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, err = fs.List(b, "", defaultLimit, strategy)
+	all, err = fs.List(b, "", ent.DefaultLimit, strategy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestDiskFSList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, err = fs.List(b, "", defaultLimit, strategy)
+	all, err = fs.List(b, "", ent.DefaultLimit, strategy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestDiskFSList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, err = fs.List(b, "", defaultLimit, strategy)
+	all, err = fs.List(b, "", ent.DefaultLimit, strategy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestDiskFSList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, err = fs.List(b, "", defaultLimit, strategy)
+	all, err = fs.List(b, "", ent.DefaultLimit, strategy)
 	if err != nil {
 		t.Fatal(err)
 	}

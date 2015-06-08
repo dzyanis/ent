@@ -6,7 +6,6 @@ import (
 	"flag"
 	"io"
 	logpkg "log"
-	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -17,28 +16,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/soundcloud/ent/lib"
 	"github.com/streadway/handy/report"
-)
-
-const (
-	keyBucket   = ":bucket"
-	keyBlob     = ":key"
-	routeBucket = `/{bucket}`
-	routeFile   = `/{bucket}/{key:[a-zA-Z0-9\-_\.~\+\/]+}`
-
-	paramLimit  = "limit"
-	paramPrefix = "prefix"
-	paramSort   = "sort"
-
-	orderKey          = "key"
-	orderLastModified = "lastModified"
-	orderAscending    = "+"
-	orderDescending   = "-"
-
-	defaultLimit uint64 = math.MaxUint64
-
-	headerETag         = "ETag"
-	headerSHA1         = "SHA1"
-	headerLastModified = "Last-Modified"
 )
 
 // Buildtime variables
@@ -113,7 +90,7 @@ func main() {
 	// DELETE /$bucket/$file
 	r.Add(
 		"DELETE",
-		routeFile,
+		ent.RouteFile,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -125,7 +102,7 @@ func main() {
 	// GET /$bucket/$file
 	r.Add(
 		"GET",
-		routeFile,
+		ent.RouteFile,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -139,7 +116,7 @@ func main() {
 	// HEAD /$bucket/$file
 	r.Add(
 		"HEAD",
-		routeFile,
+		ent.RouteFile,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -153,7 +130,7 @@ func main() {
 	// POST /$bucket/$file
 	r.Add(
 		"POST",
-		routeFile,
+		ent.RouteFile,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -168,7 +145,7 @@ func main() {
 	// GET /$bucket
 	r.Add(
 		"GET",
-		routeBucket,
+		ent.RouteBucket,
 		report.JSON(
 			os.Stdout,
 			metrics(
@@ -216,8 +193,8 @@ func main() {
 func handleCreate(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			bucket = r.URL.Query().Get(":bucket")
-			key    = r.URL.Query().Get(":key")
+			bucket = r.URL.Query().Get(ent.KeyBucket)
+			key    = r.URL.Query().Get(ent.KeyBlob)
 			start  = time.Now()
 		)
 		defer r.Body.Close()
@@ -233,7 +210,6 @@ func handleCreate(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			respondError(w, r, err)
 			return
 		}
-
 		defer f.Close()
 
 		err = writeBlobHeaders(w, f)
@@ -255,8 +231,8 @@ func handleCreate(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 func handleDelete(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			bucket = r.URL.Query().Get(keyBucket)
-			key    = r.URL.Query().Get(keyBlob)
+			bucket = r.URL.Query().Get(ent.KeyBucket)
+			key    = r.URL.Query().Get(ent.KeyBlob)
 			start  = time.Now()
 		)
 		defer r.Body.Close()
@@ -294,8 +270,8 @@ func handleDelete(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 func handleExists(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			bucket = r.URL.Query().Get(keyBucket)
-			key    = r.URL.Query().Get(keyBlob)
+			bucket = r.URL.Query().Get(ent.KeyBucket)
+			key    = r.URL.Query().Get(ent.KeyBlob)
 		)
 
 		b, err := p.Get(bucket)
@@ -322,8 +298,8 @@ func handleExists(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 func handleGet(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			bucket = r.URL.Query().Get(keyBucket)
-			key    = r.URL.Query().Get(keyBlob)
+			bucket = r.URL.Query().Get(ent.KeyBucket)
+			key    = r.URL.Query().Get(ent.KeyBlob)
 		)
 
 		b, err := p.Get(bucket)
@@ -373,11 +349,11 @@ func handleFileList(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
 			start      = time.Now()
-			limit      = defaultLimit
-			bucket     = r.URL.Query().Get(keyBucket)
-			limitValue = r.URL.Query().Get(paramLimit)
-			prefix     = r.URL.Query().Get(paramPrefix)
-			sortValue  = r.URL.Query().Get(paramSort)
+			limit      = ent.DefaultLimit
+			bucket     = r.URL.Query().Get(ent.KeyBucket)
+			limitValue = r.URL.Query().Get(ent.ParamLimit)
+			prefix     = r.URL.Query().Get(ent.ParamPrefix)
+			sortValue  = r.URL.Query().Get(ent.ParamSort)
 		)
 
 		b, err := p.Get(bucket)
@@ -454,7 +430,7 @@ func metrics(op string, next http.Handler) http.Handler {
 
 		d := time.Since(start)
 		labels := map[string]string{
-			"bucket":    r.URL.Query().Get(keyBucket),
+			"bucket":    r.URL.Query().Get(ent.KeyBucket),
 			"method":    strings.ToLower(r.Method),
 			"operation": op,
 			"status":    strconv.Itoa(rc.status),
@@ -545,18 +521,18 @@ func createSortStrategy(value string) (ent.SortStrategy, error) {
 
 	// check if the sort param starts the "+" or "-"
 	switch order {
-	case orderAscending:
+	case ent.OrderAscending:
 		// nothing to do
-	case orderDescending:
+	case ent.OrderDescending:
 		asc = false
 	default:
 		return nil, ent.ErrInvalidParam
 	}
 
 	switch criterion {
-	case orderKey:
+	case ent.OrderKey:
 		return ent.ByKeyStrategy(asc), nil
-	case orderLastModified:
+	case ent.OrderLastModified:
 		return ent.ByLastModifiedStrategy(asc), nil
 	default:
 		return nil, ent.ErrInvalidParam
@@ -569,7 +545,7 @@ func writeBlobHeaders(w http.ResponseWriter, f ent.File) error {
 		return err
 	}
 
-	w.Header().Add(headerETag, hex.EncodeToString(h))
-	w.Header().Add(headerLastModified, f.LastModified().Format(time.RFC3339Nano))
+	w.Header().Add(ent.HeaderETag, hex.EncodeToString(h))
+	w.Header().Add(ent.HeaderLastModified, f.LastModified().Format(time.RFC3339Nano))
 	return nil
 }

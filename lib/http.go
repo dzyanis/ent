@@ -2,10 +2,32 @@ package ent
 
 import (
 	"encoding/json"
+	"math"
 	"time"
 )
 
+// Constants used in HTTP request/responses.
 const (
+	DefaultLimit uint64 = math.MaxUint64
+
+	HeaderETag         = "ETag"
+	HeaderLastModified = "Last-Modified"
+
+	KeyBucket = ":bucket"
+	KeyBlob   = ":key"
+
+	OrderKey          = "key"
+	OrderLastModified = "lastModified"
+	OrderAscending    = "+"
+	OrderDescending   = "-"
+
+	ParamLimit  = "limit"
+	ParamPrefix = "prefix"
+	ParamSort   = "sort"
+
+	RouteBucket = `/{bucket}`
+	RouteFile   = `/{bucket}/{key:[a-zA-Z0-9\-_\.~\+\/]+}`
+
 	timeFormat = time.RFC3339Nano
 )
 
