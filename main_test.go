@@ -159,6 +159,43 @@ func TestHandleDelete(t *testing.T) {
 	}
 }
 
+func TestHandleGetLastModifiedReturnsNotModified(t *testing.T) {
+	var (
+		fs = ent.NewMemoryFS()
+		b  = ent.NewBucket("handle-get", ent.Owner{})
+		k  = "foo.zip"
+		r  = pat.New()
+	)
+
+	r.Get(ent.RouteFile, handleGet(ent.NewMemoryProvider(b), fs))
+
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	f, err := os.Open(fixtureZip)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	file, err := fs.Create(b, k, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", ts.URL, b.Name, k), nil)
+	req.Header.Add("If-Modified-Since", file.LastModified().UTC().Format(http.TimeFormat))
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+
+	if have, want := res.StatusCode, http.StatusNotModified; have != want {
+		t.Errorf("have %d, want %d", have, want)
+	}
+}
+
 func TestHandleGet(t *testing.T) {
 	var (
 		fs = ent.NewMemoryFS()

@@ -321,7 +321,7 @@ func handleGet(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			return
 		}
 
-		http.ServeContent(w, r, key, time.Now(), f)
+		http.ServeContent(w, r, key, f.LastModified(), f)
 	}
 }
 
