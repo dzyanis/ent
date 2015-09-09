@@ -11,7 +11,6 @@ GO         := GOOS=$(GOOS) GOARCH=$(GOARCH) go
 
 BIN        := ent
 ARCHIVE    := $(BIN)-$(VERSION)-$(GOOS)-$(GOARCH).tar.gz
-DISTDIR    := dist/$(GOOS)_$(GOARCH)
 
 
 build: $(BIN)
@@ -21,13 +20,13 @@ test:
 
 release: REMOTE     ?= $(error "can't release, REMOTE not set")
 release: REMOTE_DIR ?= $(error "can't release, REMOTE_DIR not set")
-release: dist/$(ARCHIVE)
+release: $(ARCHIVE)
 	scp $< $(REMOTE):$(REMOTE_DIR)/
 
-archive: dist/$(ARCHIVE)
+archive: $(ARCHIVE)
 
 clean:
-	rm -rf $(BIN) $(DISTDIR)
+	rm -rf $(BIN) $(ARCHIVE)
 
 
 .PHONY: build test release archive clean
@@ -35,5 +34,5 @@ clean:
 $(BIN): *.go Makefile
 	$(GO) build -o $@ $(LDFLAGS)
 
-dist/$(ARCHIVE): $(BIN)
-	tar -C $(DISTDIR) -czvf $@ .
+$(ARCHIVE): $(BIN)
+	tar -czvf $@ $<
