@@ -121,9 +121,7 @@ func main() {
 			os.Stdout,
 			metrics(
 				"handleExists",
-				addCORSHeaders(
-					handleExists(p, fs),
-				),
+				handleExists(p, fs),
 			),
 		),
 	)
@@ -186,7 +184,7 @@ func main() {
 		),
 	)
 
-	log.Printf("listening on %s", *httpAddress)
+	log.Printf("ent %s listening on %s", Version, *httpAddress)
 	log.Fatal(http.ListenAndServe(*httpAddress, http.Handler(r)))
 }
 
@@ -276,22 +274,24 @@ func handleExists(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 
 		b, err := p.Get(bucket)
 		if err != nil {
-			respondError(w, r, err)
+			respondHEAD(w, errorStatusCode(err))
 			return
 		}
 
 		f, err := fs.Open(b, key)
 		if err != nil {
-			respondError(w, r, err)
+			respondHEAD(w, errorStatusCode(err))
 			return
 		}
 		defer f.Close()
 
 		err = writeBlobHeaders(w, f)
 		if err != nil {
-			respondError(w, r, err)
+			respondHEAD(w, errorStatusCode(err))
 			return
 		}
+
+		respondHEAD(w, http.StatusOK)
 	}
 }
 
@@ -442,21 +442,29 @@ func metrics(op string, next http.Handler) http.Handler {
 	})
 }
 
-func respondError(w http.ResponseWriter, r *http.Request, err error) {
+func errorStatusCode(err error) int {
 	code := http.StatusInternalServerError
-
 	switch err {
 	case ent.ErrBucketNotFound, ent.ErrFileNotFound:
 		code = http.StatusNotFound
 	case ent.ErrInvalidParam:
 		code = http.StatusBadRequest
 	}
+	return code
+}
 
+func respondError(w http.ResponseWriter, r *http.Request, err error) {
+	code := errorStatusCode(err)
 	respondJSON(w, code, ent.ResponseError{
 		Code:        code,
 		Error:       err.Error(),
 		Description: http.StatusText(code),
 	})
+}
+
+func respondHEAD(w http.ResponseWriter, code int) {
+	w.Header().Set("Content-Length", "0")
+	w.WriteHeader(code)
 }
 
 func respondJSON(w http.ResponseWriter, code int, payload interface{}) {
