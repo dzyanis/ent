@@ -20,7 +20,7 @@ publish:
 
 .PHONY: promote-%
 promote-%:
-	artifact-manager promote %
+	artifact-manager promote $*
 
 ent: $(wildcard *.go) Makefile
 	crun go-1.6 'go get -d && make $@'
