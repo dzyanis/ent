@@ -1,0 +1,52 @@
+
+<pipeline name="ent" labeltemplate="${COUNT}-${git[:7]}" isLocked="false">
+  <materials>
+    <git url="git@github.com:soundcloud/ent.git" materialName="git"/>
+  </materials>
+  <stage name="build">
+    <jobs>
+      <job name="package">
+        <tasks>
+          <exec command="make">
+            <arg>-f</arg>
+            <arg>Makefile.pipeline</arg>
+            <arg>package</arg>
+            <arg>publish</arg>
+            <runif status="passed" />
+          </exec>
+        </tasks>
+      </job>
+    </jobs>
+  </stage>
+  <stage name="test">
+    <jobs>
+      <job name="test">
+        <tasks>
+          <exec command="make">
+            <arg>-f</arg>
+            <arg>Makefile.pipeline</arg>
+            <arg>test</arg>
+            <arg>promote-stable</arg>
+            <runif status="passed" />
+          </exec>
+        </tasks>
+      </job>
+    </jobs>
+  </stage>
+  <stage name="deploy">
+    <approval type="manual" />
+    <jobs>
+      <job name="deploy">
+        <tasks>
+          <exec command="make">
+            <arg>-f</arg>
+            <arg>Makefile.pipeline</arg>
+            <arg>promote-release</arg>
+            <runif status="passed" />
+          </exec>
+        </tasks>
+      </job>
+    </jobs>
+  </stage>
+</pipeline>
+

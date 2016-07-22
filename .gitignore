@@ -24,3 +24,4 @@ _testmain.go
 # Build output
 ent
 *.tar.gz
+target/

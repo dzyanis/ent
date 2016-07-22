@@ -1,0 +1,38 @@
+.PHONY: default
+default: package
+
+.PHONY: assemble
+assemble: ent
+	add-files $<
+	add-files start.sh
+	add-config config/default
+	add-config config/empty
+	gen-wrapper-script --target=start.sh --wrapper=web
+	gen-postinst-script
+
+.PHONY: package
+package: assemble
+	artifact-manager package --runtime=base --docker-command='/srv/$(shell manifest name)/web --config=default'
+
+.PHONY: publish
+publish:
+	artifact-manager publish
+
+.PHONY: promote-%
+promote-%:
+	artifact-manager promote %
+
+ent: $(wildcard *.go) Makefile
+	crun go-1.6 'go get -d && make $@'
+
+.PHONY: test
+test: unit-test
+
+.PHONY: unit-test
+unit-test:
+	crun go-1.6 'go get -d -t && make test'
+
+.PHONY: clean
+clean:
+	$(MAKE) clean
+	rm -rf target/

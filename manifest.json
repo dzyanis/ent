@@ -1,0 +1,13 @@
+{
+  "name": "ent",
+  "description": "Artifact storage",
+  "owner": "prodeng",
+  "contact_email": "prodeng@soundcloud.com",
+  "type": "internal_service",
+  "status": "production",
+  "data_sensitivity": [ "no_user_data" ],
+  "runtime": "base",
+  "dependencies": [],
+  "runbook": "",
+  "telemetry_dashboard": "http://grafana.int.s-cloud.net/dashboard/db/system-node?var-role=asset-hosting"
+}
