@@ -146,11 +146,15 @@ func TestHandleDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if have, want := resp.File, (ent.ResponseFile{
-		Bucket:       b,
-		Key:          key,
-		LastModified: file.LastModified(),
-	}); !reflect.DeepEqual(have, want) {
+	if have, want := resp.File.Key, key; have != want {
+		t.Errorf("want %v, got %v", have, want)
+	}
+
+	if have, want := resp.File.LastModified, file.LastModified(); !have.Equal(want) {
+		t.Errorf("want %v, got %v", have, want)
+	}
+
+	if have, want := resp.File.Bucket, b; !reflect.DeepEqual(have, want) {
 		t.Errorf("want %v, got %v", have, want)
 	}
 
