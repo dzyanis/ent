@@ -31,7 +31,7 @@ clean:
 
 .PHONY: build test release archive clean
 
-$(BIN): *.go Makefile
+$(BIN): $(wildcard *.go) Makefile
 	$(GO) build -o $@ $(LDFLAGS)
 
 $(ARCHIVE): $(BIN)
