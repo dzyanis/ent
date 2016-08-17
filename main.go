@@ -454,6 +454,7 @@ func errorStatusCode(err error) int {
 }
 
 func respondError(w http.ResponseWriter, r *http.Request, err error) {
+	log.Printf("ERROR could not respond to %s: %s", r.RequestURI, err)
 	code := errorStatusCode(err)
 	respondJSON(w, code, ent.ResponseError{
 		Code:        code,
