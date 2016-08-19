@@ -387,9 +387,6 @@ func handleFileList(p ent.Provider, fs ent.FileSystem) http.HandlerFunc {
 			respondError(w, r, err)
 			return
 		}
-		for _, file := range files {
-			defer file.Close()
-		}
 
 		respondJSON(w, http.StatusOK, ent.ResponseFileList{
 			Count:    len(responseFiles),

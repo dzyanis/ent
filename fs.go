@@ -223,18 +223,13 @@ func listWalk(
 		}
 
 		if !info.IsDir() && strings.HasPrefix(path, prefix) {
-			fd, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-
-			stat, err := fd.Stat()
+			stat, err := os.Stat(path)
 			if err != nil {
 				return err
 			}
 
 			// The key is without leading slash.
-			f := newFile(fd, strings.TrimPrefix(path, bucketDir+"/"))
+			f := newFile(nil, strings.TrimPrefix(path, bucketDir+"/"))
 			f.lastModified = stat.ModTime()
 
 			*files = append(*files, f)
